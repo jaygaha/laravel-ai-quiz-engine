@@ -23,7 +23,6 @@ services:
             - sail
         depends_on:
             - pgsql
-            - mysql
             - mailpit
     pgsql:
         image: 'postgres:18-alpine'
@@ -62,6 +61,4 @@ networks:
         driver: bridge
 volumes:
     sail-pgsql:
-        driver: local
-    sail-mysql:
         driver: local
