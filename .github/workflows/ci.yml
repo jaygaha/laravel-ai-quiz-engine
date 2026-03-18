@@ -102,15 +102,50 @@ jobs:
 
       # ── Lint ────────────────────────────────────────────────────────────
       # --test     → exit 1 if any file would be changed (CI-safe; no writes)
-      # --format github → emit ::error:: annotations visible in the PR diff
       - name: Run Pint (check only)
-        run: ./vendor/bin/pint --test --format github
+        run: ./vendor/bin/pint --test
 
   ##############################################################################
   #  JOB 2 — Security Audit
   ##############################################################################
   security-audit:
     name: "Security Audit"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── PHP ─────────────────────────────────────────────────────────────
+      - name: Setup PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer:v2
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Composer audit ──────────────────────────────────────────────────
+      # Checks installed packages against the PHP Security Advisories database.
+      # Fails the job on any known CVE in a production dependency.
+      - name: Composer security audit
+        run: composer audit --locked --no-dev
+
+      # ── npm audit ───────────────────────────────────────────────────────
+      # --audit-level=high: ignore low/moderate advisories in dev tooling
+      #  (vite, rollup etc. generate many low-severity false positives).
+      # continue-on-error: true prevents flaky upstream advisories from
+      #  blocking deployments; the step outcome is still surfaced in the UI.
+      - name: npm security audit
+        run: npm audit --audit-level=high --omit=dev
+        continue-on-error: true
+
+  ##############################################################################
+  #  JOB 3 — Frontend Asset Build (Vite)
+  ##############################################################################
+  build-assets:
+    name: "Frontend Build (Vite)"
     runs-on: ubuntu-latest
 
     steps:
@@ -136,50 +171,13 @@ jobs:
           restore-keys: |
             composer-${{ runner.os }}-${{ env.PHP_VERSION }}-
 
-      # ── Install ─────────────────────────────────────────────────────────
+      # ── Install PHP Deps (required for Vite to find vendor CSS) ─────────
       - name: Install Composer dependencies
         run: |
           composer install \
             --no-interaction \
-            --no-scripts \
             --prefer-dist \
             --optimize-autoloader
-
-      # ── Composer audit ──────────────────────────────────────────────────
-      # Checks installed packages against the PHP Security Advisories database.
-      # Fails the job on any known CVE in a production dependency.
-      - name: Composer security audit
-        run: composer audit --no-dev
-
-      # ── Node / npm ──────────────────────────────────────────────────────
-      - name: Setup Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      # ── npm audit ───────────────────────────────────────────────────────
-      # --audit-level=high: ignore low/moderate advisories in dev tooling
-      #  (vite, rollup etc. generate many low-severity false positives).
-      # continue-on-error: true prevents flaky upstream advisories from
-      #  blocking deployments; the step outcome is still surfaced in the UI.
-      - name: npm security audit
-        run: npm audit --audit-level=high --omit=dev
-        continue-on-error: true
-
-  ##############################################################################
-  #  JOB 3 — Frontend Asset Build (Vite)
-  ##############################################################################
-  build-assets:
-    name: "Frontend Build (Vite)"
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       # ── Node ────────────────────────────────────────────────────────────
       - name: Setup Node ${{ env.NODE_VERSION }}
@@ -215,6 +213,7 @@ jobs:
   tests:
     name: "Tests (PHP ${{ matrix.php }})"
     runs-on: ubuntu-latest
+    needs: build-assets
 
     # ── PostgreSQL service container ────────────────────────────────────────
     # Mirrors the production database engine to catch driver-specific behaviour
@@ -256,12 +255,10 @@ jobs:
           tools: composer:v2
           # pdo_pgsql / pgsql: required for the PostgreSQL service
           extensions: pdo_pgsql, pgsql, pcntl
-          # Enable Xdebug coverage on the primary version only to keep
-          # the matrix leg fast; PCOV is lighter but Pest needs Xdebug
-          # for branch/path coverage. Disable on non-primary legs.
-          coverage: ${{ matrix.php == '8.4' && 'xdebug' || 'none' }}
+          # Enable PCOV coverage on the primary version only to keep
+          # the matrix leg fast. Disable on non-primary legs.
+          coverage: ${{ matrix.php == '8.4' && 'pcov' || 'none' }}
           ini-values: >-
-            xdebug.mode=coverage,
             memory_limit=512M
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -275,12 +272,12 @@ jobs:
           restore-keys: |
             composer-${{ runner.os }}-${{ matrix.php }}-
 
-      # ── Node ────────────────────────────────────────────────────────────
-      - name: Setup Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+      # ── Download pre-built assets ──────────────────────────────────────
+      - name: Download Vite build artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          name: vite-build-${{ github.sha }}
+          path: public/build/
 
       # ── Install ─────────────────────────────────────────────────────────
       - name: Install Composer dependencies
@@ -289,15 +286,6 @@ jobs:
             --no-interaction \
             --prefer-dist \
             --optimize-autoloader
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      # ── Frontend assets ─────────────────────────────────────────────────
-      # Tests that render Blade views (e.g. Livewire component tests) require
-      # the Vite manifest to exist; without it Laravel throws ViteException.
-      - name: Build frontend assets
-        run: npm run build
 
       # ── Environment ─────────────────────────────────────────────────────
       - name: Prepare test environment
