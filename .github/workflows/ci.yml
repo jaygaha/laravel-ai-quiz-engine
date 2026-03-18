@@ -1,0 +1,414 @@
+##############################################################################
+#  QuizForge — Continuous Integration
+#
+#  Jobs (all run in parallel; ci-gate collects the results):
+#
+#    code-quality   → Laravel Pint style check (fast-fail gate)
+#    security-audit → composer audit + npm audit
+#    build-assets   → Vite production build; uploads artifact for reuse
+#    tests          → Pest on PHP 8.3 & 8.4 against PostgreSQL
+#    ci-gate        → Single required status-check for branch-protection rules
+#
+#  No additional secrets are required.
+#  livewire/flux (free edition) is distributed via the public GitHub registry
+#  and resolves through standard `composer install` with no credentials.
+##############################################################################
+
+name: CI
+
+# ── Triggers ────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - staging
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+      - staging
+  # Allow manual re-runs from the Actions UI
+  workflow_dispatch:
+
+# ── Global defaults ──────────────────────────────────────────────────────────
+# Cancel any in-progress run for the same branch/PR when a new commit arrives.
+# This avoids wasted runner minutes on superseded code.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Principle of least privilege — individual jobs elevate only what they need.
+permissions:
+  contents: read
+
+# ── Shared environment ───────────────────────────────────────────────────────
+env:
+  # Pin the "primary" PHP version used by jobs that only run once
+  PHP_VERSION: "8.4"
+  NODE_VERSION: "22"
+  # Makes composer install / npm ci output cleaner in CI logs
+  COMPOSER_NO_INTERACTION: "1"
+
+##############################################################################
+#  JOB 1 — Code Quality (Laravel Pint)
+##############################################################################
+jobs:
+  code-quality:
+    name: "Code Quality (Pint)"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── PHP ─────────────────────────────────────────────────────────────
+      - name: Setup PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer:v2
+          # coverage: none keeps this job fast — no instrumentation needed
+          coverage: none
+        env:
+          # Suppress "update available" notices in CI output
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Composer cache ──────────────────────────────────────────────────
+      # Cache keyed on composer.lock so the cache is invalidated precisely
+      # when dependencies change, not just when composer.json changes.
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-${{ env.PHP_VERSION }}-
+
+      # ── Install ─────────────────────────────────────────────────────────
+      # --no-scripts: skip post-install hooks (package:discover) here;
+      #               avoids bootstrapping the app in a lint-only job.
+      - name: Install Composer dependencies
+        run: |
+          composer install \
+            --no-interaction \
+            --no-scripts \
+            --prefer-dist \
+            --optimize-autoloader
+
+      # ── Lint ────────────────────────────────────────────────────────────
+      # --test     → exit 1 if any file would be changed (CI-safe; no writes)
+      # --format github → emit ::error:: annotations visible in the PR diff
+      - name: Run Pint (check only)
+        run: ./vendor/bin/pint --test --format github
+
+  ##############################################################################
+  #  JOB 2 — Security Audit
+  ##############################################################################
+  security-audit:
+    name: "Security Audit"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── PHP ─────────────────────────────────────────────────────────────
+      - name: Setup PHP ${{ env.PHP_VERSION }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer:v2
+          coverage: none
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Composer cache ──────────────────────────────────────────────────
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-${{ env.PHP_VERSION }}-
+
+      # ── Install ─────────────────────────────────────────────────────────
+      - name: Install Composer dependencies
+        run: |
+          composer install \
+            --no-interaction \
+            --no-scripts \
+            --prefer-dist \
+            --optimize-autoloader
+
+      # ── Composer audit ──────────────────────────────────────────────────
+      # Checks installed packages against the PHP Security Advisories database.
+      # Fails the job on any known CVE in a production dependency.
+      - name: Composer security audit
+        run: composer audit --no-dev
+
+      # ── Node / npm ──────────────────────────────────────────────────────
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # ── npm audit ───────────────────────────────────────────────────────
+      # --audit-level=high: ignore low/moderate advisories in dev tooling
+      #  (vite, rollup etc. generate many low-severity false positives).
+      # continue-on-error: true prevents flaky upstream advisories from
+      #  blocking deployments; the step outcome is still surfaced in the UI.
+      - name: npm security audit
+        run: npm audit --audit-level=high --omit=dev
+        continue-on-error: true
+
+  ##############################################################################
+  #  JOB 3 — Frontend Asset Build (Vite)
+  ##############################################################################
+  build-assets:
+    name: "Frontend Build (Vite)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Node ────────────────────────────────────────────────────────────
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # actions/setup-node@v4 handles npm cache natively via the lockfile
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # ── Build ───────────────────────────────────────────────────────────
+      - name: Build production assets
+        run: npm run build
+
+      # ── Upload artifact ─────────────────────────────────────────────────
+      # Uploading the compiled public/build/ directory means the deploy job
+      # never needs to re-run Vite — it downloads this artifact instead.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vite-build-${{ github.sha }}
+          path: public/build/
+          # Keep for 7 days — enough to cover a hotfix window
+          retention-days: 7
+          # Fail loudly if the build directory is unexpectedly empty
+          if-no-files-found: error
+
+  ##############################################################################
+  #  JOB 4 — Pest Test Suite (matrix: PHP 8.3 × 8.4)
+  ##############################################################################
+  tests:
+    name: "Tests (PHP ${{ matrix.php }})"
+    runs-on: ubuntu-latest
+
+    # ── PostgreSQL service container ────────────────────────────────────────
+    # Mirrors the production database engine to catch driver-specific behaviour
+    # (e.g. strict type coercion, JSON operators) that SQLite would mask.
+    services:
+      pgsql:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: testing
+          POSTGRES_USER: sail
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U sail -d testing"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    # ── Matrix ──────────────────────────────────────────────────────────────
+    strategy:
+      # Run all matrix legs even if one fails so you see the full picture
+      fail-fast: false
+      matrix:
+        php:
+          - "8.3"
+          - "8.4"
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── PHP ─────────────────────────────────────────────────────────────
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          # pdo_pgsql / pgsql: required for the PostgreSQL service
+          extensions: pdo_pgsql, pgsql, pcntl
+          # Enable Xdebug coverage on the primary version only to keep
+          # the matrix leg fast; PCOV is lighter but Pest needs Xdebug
+          # for branch/path coverage. Disable on non-primary legs.
+          coverage: ${{ matrix.php == '8.4' && 'xdebug' || 'none' }}
+          ini-values: >-
+            xdebug.mode=coverage,
+            memory_limit=512M
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Composer cache ──────────────────────────────────────────────────
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-${{ matrix.php }}-
+
+      # ── Node ────────────────────────────────────────────────────────────
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # ── Install ─────────────────────────────────────────────────────────
+      - name: Install Composer dependencies
+        run: |
+          composer install \
+            --no-interaction \
+            --prefer-dist \
+            --optimize-autoloader
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # ── Frontend assets ─────────────────────────────────────────────────
+      # Tests that render Blade views (e.g. Livewire component tests) require
+      # the Vite manifest to exist; without it Laravel throws ViteException.
+      - name: Build frontend assets
+        run: npm run build
+
+      # ── Environment ─────────────────────────────────────────────────────
+      - name: Prepare test environment
+        run: |
+          cp .env.example .env
+
+          # Override DB host — service containers are exposed on 127.0.0.1
+          # in GitHub Actions, not the Docker network alias used in Sail.
+          {
+            echo "DB_CONNECTION=pgsql"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=5432"
+            echo "DB_DATABASE=testing"
+            echo "DB_USERNAME=sail"
+            echo "DB_PASSWORD=password"
+          } >> .env
+
+          php artisan key:generate --ansi
+
+      # ── Migrate ─────────────────────────────────────────────────────────
+      - name: Run database migrations
+        run: php artisan migrate --force --ansi
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: testing
+          DB_USERNAME: sail
+          DB_PASSWORD: password
+
+      # ── Test suite ──────────────────────────────────────────────────────
+      # --coverage-clover: machine-readable report uploaded as artifact
+      # --min=80:          fail if overall line coverage drops below 80 %
+      # --compact:         concise one-line-per-test output (less noise)
+      # Coverage flags are only passed on the primary PHP version to avoid
+      # the ~2× slowdown from Xdebug on every matrix leg.
+      - name: Run Pest test suite
+        run: |
+          if [ "${{ matrix.php }}" = "8.4" ]; then
+            ./vendor/bin/pest \
+              --compact \
+              --coverage \
+              --coverage-clover=coverage.xml \
+              --min=80
+          else
+            ./vendor/bin/pest --compact
+          fi
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: testing
+          DB_USERNAME: sail
+          DB_PASSWORD: password
+
+      # ── Upload coverage ─────────────────────────────────────────────────
+      # Only the primary PHP leg generates a coverage report.
+      - name: Upload coverage report
+        if: matrix.php == '8.4'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: coverage.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+  ##############################################################################
+  #  JOB 5 — CI Gate
+  #
+  #  A single, stable job name to reference in GitHub branch-protection rules
+  #  ("Require status checks to pass before merging → ci-gate").
+  #  Because it uses `if: always()` it runs regardless of upstream failures
+  #  and converts any upstream failure into an explicit failure of this job.
+  ##############################################################################
+  ci-gate:
+    name: "CI Gate"
+    runs-on: ubuntu-latest
+    # Declare explicit dependency on every substantive job
+    needs:
+      - code-quality
+      - security-audit
+      - build-assets
+      - tests
+    # always() ensures this job runs even if an upstream job is cancelled/failed
+    if: always()
+
+    steps:
+      - name: Evaluate CI result
+        run: |
+          echo "Job results:"
+          echo "  code-quality   → ${{ needs.code-quality.result }}"
+          echo "  security-audit → ${{ needs.security-audit.result }}"
+          echo "  build-assets   → ${{ needs.build-assets.result }}"
+          echo "  tests          → ${{ needs.tests.result }}"
+
+          # Treat both 'failure' and 'cancelled' as a broken build.
+          # 'skipped' is allowed (e.g. path-filtered jobs that didn't run).
+          if [[ \
+            "${{ needs.code-quality.result }}"   == "failure" || \
+            "${{ needs.code-quality.result }}"   == "cancelled" || \
+            "${{ needs.security-audit.result }}" == "failure" || \
+            "${{ needs.security-audit.result }}" == "cancelled" || \
+            "${{ needs.build-assets.result }}"   == "failure" || \
+            "${{ needs.build-assets.result }}"   == "cancelled" || \
+            "${{ needs.tests.result }}"          == "failure" || \
+            "${{ needs.tests.result }}"          == "cancelled" \
+          ]]; then
+            echo ""
+            echo "❌  One or more CI jobs failed. Merge is blocked."
+            exit 1
+          fi
+
+          echo ""
+          echo "✅  All CI checks passed."

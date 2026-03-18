@@ -1,0 +1,333 @@
+##############################################################################
+#  QuizForge — Continuous Deployment
+#
+#  ⚠️  This entire workflow is commented out.
+#      No deployment target is configured yet.
+#      Uncomment and adapt the relevant strategy section when you are ready.
+#
+#  Supported strategies (pick one, delete the others):
+#
+#    A. SSH + rsync          → any VPS / bare-metal server
+#    B. Laravel Forge        → forge.laravel.com managed servers
+#    C. Laravel Vapor        → AWS Lambda via vapor.laravel.com
+#    D. Docker / Kubernetes  → container-based infrastructure
+#
+#  Environments:
+#    develop → staging
+#    main    → production
+#
+#  Required GitHub Environments (Settings → Environments):
+#    staging    — no approval gate
+#    production — required reviewers + deployment branch "main" only
+#
+#  The workflow intentionally downloads the Vite artifact produced by ci.yml
+#  so Vite never runs twice in the same pipeline.
+##############################################################################
+
+# name: CD
+#
+# # ── Triggers ──────────────────────────────────────────────────────────────
+# # Only deploy after CI passes on the tracked branches.
+# on:
+#   workflow_run:
+#     workflows: ["CI"]
+#     types: [completed]
+#     branches:
+#       - main
+#       - develop
+#
+#   # Allow emergency manual deploys from the Actions UI
+#   workflow_dispatch:
+#     inputs:
+#       environment:
+#         description: "Target environment"
+#         required: true
+#         type: choice
+#         options:
+#           - staging
+#           - production
+#       reason:
+#         description: "Reason for manual deploy"
+#         required: false
+#         type: string
+#
+# # ── Global defaults ────────────────────────────────────────────────────────
+# # NEVER cancel an in-flight deployment — a half-deployed app is worse than
+# # a slow pipeline.
+# concurrency:
+#   group: deploy-${{ github.ref }}
+#   cancel-in-progress: false
+#
+# permissions:
+#   contents: read
+#   deployments: write  # Required to update GitHub deployment status
+#
+# env:
+#   PHP_VERSION: "8.4"
+#   NODE_VERSION: "22"
+#   COMPOSER_NO_INTERACTION: "1"
+#
+# ##############################################################################
+# #  GUARD — abort if the upstream CI run failed
+# ##############################################################################
+# jobs:
+#   guard:
+#     name: "Guard (CI must have passed)"
+#     runs-on: ubuntu-latest
+#     if: >
+#       github.event_name == 'workflow_dispatch' ||
+#       github.event.workflow_run.conclusion == 'success'
+#     steps:
+#       - name: CI passed — proceeding with deployment
+#         run: echo "Upstream CI run concluded with ${{ github.event.workflow_run.conclusion }}"
+#
+#   ##############################################################################
+#   #  STAGING — triggered on push to develop
+#   ##############################################################################
+#   deploy-staging:
+#     name: "Deploy → Staging"
+#     runs-on: ubuntu-latest
+#     needs: guard
+#     # Targets the "staging" GitHub Environment.
+#     # Configure environment-specific secrets and optional approval gates there.
+#     environment:
+#       name: staging
+#       url: https://staging.quizforge.jaygaha.com.np  # ← update this URL
+#     if: >
+#       github.ref == 'refs/heads/develop' ||
+#       (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+#
+#     steps:
+#       # ── Checkout ──────────────────────────────────────────────────────
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#
+#       # ── Download pre-built assets ──────────────────────────────────────
+#       # Re-use the artifact produced by the CI build job.
+#       # This guarantees staging runs the identical bytes tested in CI.
+#       - name: Download Vite build artifact
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: vite-build-${{ github.sha }}
+#           path: public/build/
+#
+#       # ── PHP ───────────────────────────────────────────────────────────
+#       - name: Setup PHP ${{ env.PHP_VERSION }}
+#         uses: shivammathur/setup-php@v2
+#         with:
+#           php-version: ${{ env.PHP_VERSION }}
+#           tools: composer:v2
+#           coverage: none
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#
+      # ── Install production dependencies only ──────────────────────────
+#       - name: Install Composer dependencies (production)
+#         run: |
+#           composer install \
+#             --no-interaction \
+#             --no-dev \
+#             --prefer-dist \
+#             --optimize-autoloader
+#
+#       # ────────────────────────────────────────────────────────────────────
+#       #  STRATEGY A — SSH + rsync
+#       #
+#       #  Required secrets (staging environment):
+#       #    STAGING_HOST      — server IP or hostname
+#       #    STAGING_USER      — SSH user (e.g. "forge" or "ubuntu")
+#       #    STAGING_SSH_KEY   — private key (add public key to ~/.ssh/authorized_keys)
+#       #    STAGING_DEPLOY_PATH — absolute path on server (e.g. /var/www/quizforge)
+#       # ────────────────────────────────────────────────────────────────────
+#       # - name: Sync files to staging server
+#       #   uses: appleboy/ssh-action@v1
+#       #   with:
+#       #     host: ${{ secrets.STAGING_HOST }}
+#       #     username: ${{ secrets.STAGING_USER }}
+#       #     key: ${{ secrets.STAGING_SSH_KEY }}
+#       #     script: |
+#       #       set -e
+#       #       cd ${{ secrets.STAGING_DEPLOY_PATH }}
+#       #
+#       #       # Pull latest code
+#       #       git fetch origin develop
+#       #       git reset --hard origin/develop
+#       #
+#       #       # Install production dependencies on the server
+#       #       composer install --no-dev --optimize-autoloader --no-interaction
+#       #
+#       #       # Apply pending migrations (--force required in non-interactive env)
+#       #       php artisan migrate --force
+#       #
+#       #       # Warm all caches for performance
+#       #       php artisan config:cache
+#       #       php artisan route:cache
+#       #       php artisan view:cache
+#       #       php artisan event:cache
+#       #
+#       #       # Gracefully restart background workers so they pick up new code
+#       #       php artisan queue:restart
+#       #
+#       #       # Reload PHP-FPM (adjust service name for your distro)
+#       #       sudo systemctl reload php8.4-fpm
+#
+#       # ────────────────────────────────────────────────────────────────────
+#       #  STRATEGY B — Laravel Forge
+#       #
+#       #  Required secrets (staging environment):
+#       #    FORGE_API_TOKEN   — from forge.laravel.com → Profile → API Tokens
+#       #    FORGE_SERVER_ID   — numeric server ID from the Forge URL
+#       #    FORGE_SITE_ID     — numeric site ID from the Forge URL
+#       # ────────────────────────────────────────────────────────────────────
+#       # - name: Trigger Forge deployment
+#       #   run: |
+#       #     curl --fail --silent \
+#       #       -X POST \
+#       #       -H "Authorization: Bearer ${{ secrets.FORGE_API_TOKEN }}" \
+#       #       -H "Accept: application/json" \
+#       #       "https://forge.laravel.com/api/v1/servers/${{ secrets.FORGE_SERVER_ID }}/sites/${{ secrets.FORGE_SITE_ID }}/deployment/deploy"
+#
+#       # ────────────────────────────────────────────────────────────────────
+#       #  STRATEGY C — Laravel Vapor
+#       #
+#       #  Required secrets (staging environment):
+#       #    VAPOR_API_TOKEN — from vapor.laravel.com → Settings → API Tokens
+#       #  Required file: vapor.yml in project root
+#       # ────────────────────────────────────────────────────────────────────
+#       # - name: Install Vapor CLI
+#       #   run: composer global require laravel/vapor-cli --no-interaction
+#       #
+#       # - name: Deploy to Vapor (staging)
+#       #   run: vapor deploy staging --commit="${{ github.sha }}"
+#       #   env:
+#       #     VAPOR_API_TOKEN: ${{ secrets.VAPOR_API_TOKEN }}
+#
+#       # ────────────────────────────────────────────────────────────────────
+#       #  STRATEGY D — Docker / Kubernetes
+#       #
+#       #  Required secrets (staging environment):
+#       #    DOCKER_REGISTRY       — e.g. ghcr.io or hub.docker.com
+#       #    DOCKER_USERNAME
+#       #    DOCKER_PASSWORD
+#       #    KUBE_CONFIG           — base64-encoded kubeconfig
+#       # ────────────────────────────────────────────────────────────────────
+#       # - name: Log in to container registry
+#       #   uses: docker/login-action@v3
+#       #   with:
+#       #     registry: ${{ secrets.DOCKER_REGISTRY }}
+#       #     username: ${{ secrets.DOCKER_USERNAME }}
+#       #     password: ${{ secrets.DOCKER_PASSWORD }}
+#       #
+#       # - name: Build and push Docker image
+#       #   uses: docker/build-push-action@v6
+#       #   with:
+#       #     context: .
+#       #     push: true
+#       #     tags: |
+#       #       ${{ secrets.DOCKER_REGISTRY }}/quizforge:staging
+#       #       ${{ secrets.DOCKER_REGISTRY }}/quizforge:${{ github.sha }}
+#       #     cache-from: type=gha
+#       #     cache-to: type=gha,mode=max
+#       #
+#       # - name: Deploy to Kubernetes (staging)
+#       #   uses: azure/k8s-deploy@v5
+#       #   with:
+#       #     manifests: k8s/staging/
+#       #     images: ${{ secrets.DOCKER_REGISTRY }}/quizforge:${{ github.sha }}
+#
+#       # ── Post-deploy health check ──────────────────────────────────────
+#       # Laravel exposes /up (registered in bootstrap/app.php → health: '/up').
+#       # A 200 response means the app booted successfully after the deploy.
+#       # - name: Health check — staging
+#       #   run: |
+#       #     echo "Waiting for app to become ready…"
+#       #     sleep 15
+#       #     curl --fail --silent --retry 5 --retry-delay 10 \
+#       #       https://staging.quizforge.jaygaha.com.np/up
+#       #     echo "✅  Staging is healthy."
+#
+#   ##############################################################################
+#   #  PRODUCTION — triggered on push to main
+#   #
+#   #  Configure the "production" GitHub Environment with:
+#   #    • Required reviewer approvals (at least one senior engineer)
+#   #    • Deployment branch policy: "main" only
+#   #    • Environment-specific secrets (separate from staging)
+#   ##############################################################################
+#   deploy-production:
+#     name: "Deploy → Production"
+#     runs-on: ubuntu-latest
+#     needs: guard
+#     environment:
+#       name: production
+#       url: https://quizforge.jaygaha.com.np  # ← update this URL
+#     if: >
+#       github.ref == 'refs/heads/main' ||
+#       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+#
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#
+#       - name: Download Vite build artifact
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: vite-build-${{ github.sha }}
+#           path: public/build/
+#
+#       - name: Setup PHP ${{ env.PHP_VERSION }}
+#         uses: shivammathur/setup-php@v2
+#         with:
+#           php-version: ${{ env.PHP_VERSION }}
+#           tools: composer:v2
+#           coverage: none
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#
+#       - name: Install Composer dependencies (production)
+#         run: |
+#           composer install \
+#             --no-interaction \
+#             --no-dev \
+#             --prefer-dist \
+#             --optimize-autoloader
+#
+#       # ── Deploy (mirror the strategy chosen above for staging) ─────────
+#       # ... (same strategy blocks as deploy-staging, targeting production)
+#
+#       # ── Zero-downtime migration guard ─────────────────────────────────
+#       # Run migrations inside a maintenance window to avoid serving
+#       # requests against an inconsistent schema.
+#       # - name: Enable maintenance mode
+#       #   run: ssh ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }} \
+#       #     "cd ${{ secrets.PROD_DEPLOY_PATH }} && php artisan down --retry=60"
+#       #
+#       # - name: Run migrations
+#       #   run: ssh ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }} \
+#       #     "cd ${{ secrets.PROD_DEPLOY_PATH }} && php artisan migrate --force"
+#       #
+#       # - name: Disable maintenance mode
+#       #   if: always()  # always bring the app back up, even if migration fails
+#       #   run: ssh ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }} \
+#       #     "cd ${{ secrets.PROD_DEPLOY_PATH }} && php artisan up"
+#
+#       # ── Post-deploy health check ──────────────────────────────────────
+#       # - name: Health check — production
+#       #   run: |
+#       #     echo "Waiting for app to become ready…"
+#       #     sleep 15
+#       #     curl --fail --silent --retry 5 --retry-delay 10 \
+#       #       https://quizforge.jaygaha.com.np/up
+#       #     echo "✅  Production is healthy."
+#
+#       # ── Notify on failure ──────────────────────────────────────────────
+#       # - name: Notify Slack on failure
+#       #   if: failure()
+#       #   uses: slackapi/slack-github-action@v2
+#       #   with:
+#       #     payload: |
+#       #       {
+#       #         "text": "🚨 Production deploy FAILED for ${{ github.repository }} @ ${{ github.sha }}\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+#       #       }
+#       #   env:
+#       #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
