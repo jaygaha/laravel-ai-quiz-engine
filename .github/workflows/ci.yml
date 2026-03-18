@@ -64,7 +64,7 @@ jobs:
     steps:
       # ── Checkout ────────────────────────────────────────────────────────
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ── PHP ─────────────────────────────────────────────────────────────
       - name: Setup PHP ${{ env.PHP_VERSION }}
@@ -82,7 +82,7 @@ jobs:
       # Cache keyed on composer.lock so the cache is invalidated precisely
       # when dependencies change, not just when composer.json changes.
       - name: Cache Composer packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor
           key: composer-${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
@@ -114,7 +114,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ── PHP ─────────────────────────────────────────────────────────────
       - name: Setup PHP ${{ env.PHP_VERSION }}
@@ -150,7 +150,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ── PHP ─────────────────────────────────────────────────────────────
       - name: Setup PHP ${{ env.PHP_VERSION }}
@@ -164,7 +164,7 @@ jobs:
 
       # ── Composer cache ──────────────────────────────────────────────────
       - name: Cache Composer packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor
           key: composer-${{ runner.os }}-${{ env.PHP_VERSION }}-${{ hashFiles('composer.lock') }}
@@ -181,10 +181,10 @@ jobs:
 
       # ── Node ────────────────────────────────────────────────────────────
       - name: Setup Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          # actions/setup-node@v4 handles npm cache natively via the lockfile
+          # actions/setup-node@v6 handles npm cache natively via the lockfile
           cache: npm
 
       - name: Install Node dependencies
@@ -198,7 +198,7 @@ jobs:
       # Uploading the compiled public/build/ directory means the deploy job
       # never needs to re-run Vite — it downloads this artifact instead.
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vite-build-${{ github.sha }}
           path: public/build/
@@ -245,7 +245,7 @@ jobs:
     steps:
       # ── Checkout ────────────────────────────────────────────────────────
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # ── PHP ─────────────────────────────────────────────────────────────
       - name: Setup PHP ${{ matrix.php }}
@@ -265,7 +265,7 @@ jobs:
 
       # ── Composer cache ──────────────────────────────────────────────────
       - name: Cache Composer packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: vendor
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
@@ -274,7 +274,7 @@ jobs:
 
       # ── Download pre-built assets ──────────────────────────────────────
       - name: Download Vite build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vite-build-${{ github.sha }}
           path: public/build/
@@ -345,7 +345,7 @@ jobs:
       # Only the primary PHP leg generates a coverage report.
       - name: Upload coverage report
         if: matrix.php == '8.4'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-${{ github.sha }}
           path: coverage.xml
