@@ -1,0 +1,111 @@
+##############################################################################
+#  Dependabot — Automated dependency updates
+#
+#  Three ecosystems monitored:
+#    composer       → PHP packages (grouped by vendor)
+#    npm            → JavaScript packages
+#    github-actions → CI action pins
+#
+#  All PRs open on Mondays at 09:00 UTC.
+#  Grouped updates reduce PR noise: one PR per vendor family instead of
+#  one PR per package.
+##############################################################################
+
+version: 2
+
+updates:
+  # ── PHP / Composer ─────────────────────────────────────────────────────────
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    # Maximum open Dependabot PRs at once (prevent PR avalanche)
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "php"
+    # Group related packages into a single PR to reduce review overhead
+    groups:
+      laravel-core:
+        patterns:
+          - "laravel/framework"
+          - "laravel/fortify"
+          - "laravel/tinker"
+      laravel-dev-tools:
+        patterns:
+          - "laravel/pint"
+          - "laravel/pail"
+          - "laravel/sail"
+          - "laravel/boost"
+      livewire:
+        patterns:
+          - "livewire/*"
+      pest:
+        patterns:
+          - "pestphp/*"
+      testing-tools:
+        patterns:
+          - "fakerphp/*"
+          - "mockery/*"
+          - "nunomaduro/*"
+    # Ignore pre-release versions — stay on stable only
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"  # Major bumps require manual review
+
+  # ── JavaScript / npm ────────────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    groups:
+      vite-ecosystem:
+        patterns:
+          - "vite"
+          - "laravel-vite-plugin"
+          - "@rollup/*"
+      tailwind-ecosystem:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "autoprefixer"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  # Keeps CI action pins (actions/checkout@v4 etc.) up to date.
+  # Major version bumps are included here because action major versions
+  # are intentionally breaking — you want to adopt them deliberately.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions-core:
+        patterns:
+          - "actions/*"
+      third-party-actions:
+        patterns:
+          - "shivammathur/*"
+          - "appleboy/*"
+          - "docker/*"

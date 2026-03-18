@@ -1,0 +1,530 @@
+@import 'tailwindcss';
+@import '../../vendor/livewire/flux/dist/flux.css';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
+@source '../../vendor/livewire/flux/stubs/**/*.blade.php';
+
+/* ─────────────────────────────────────────────────────
+   QuizForge Design System — Light Mode Only
+   ─────────────────────────────────────────────────────
+   Off-White        #F8F9FA                  — canvas bg
+   Deep Charcoal    #1F2937  gray-800        — primary text
+   Teal Primary     #0D9488  teal-600        — primary actions
+   Coral Accent     #FF9494                  — interactive / achievement (sparing)
+   Soft Pink        #FFE3E1                  — category bento tint (2-5%)
+   Sunny Yellow     #F59E0B  amber-500       — badges/progress
+   Surface          #FFFFFF                  — card bg
+   Border           #E5E7EB  gray-200        — 1px card border
+   ───────────────────────────────────────────────────── */
+
+
+@theme {
+    /* ── Typography — Lexend for reading ease ── */
+    --font-sans: 'Lexend', ui-sans-serif, system-ui, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* ── Canvas & surface ── */
+    --color-canvas:       #F8F9FA;
+    --color-surface:      #FFFFFF;
+    --color-border:       #E5E7EB;
+    --color-border-hover: #D1D5DB;
+
+    /* ── Charcoal text scale ── */
+    --color-charcoal-900: #1F2937;
+    --color-charcoal-600: #4B5563;
+    --color-charcoal-400: #9CA3AF;
+
+    /* ── Teal (primary actions) ── */
+    --color-teal-50:  #F0FDFA;
+    --color-teal-100: #CCFBF1;
+    --color-teal-200: #99F6E4;
+    --color-teal-500: #14B8A6;
+    --color-teal-600: #0D9488;
+    --color-teal-700: #0F766E;
+    --color-teal-800: #115E59;
+
+    /* ── Coral Accent (interactive / achievement — use sparingly) ── */
+    --color-coral:       #FF9494;
+    --color-coral-50:    #FFF0EF;
+    --color-coral-100:   #FFE3E1;
+    --color-coral-600:   #FF6B6B;
+    --color-coral-700:   #E05555;
+
+    /* ── Sunny Yellow ── */
+    --color-sunny-50:  #FFFBEB;
+    --color-sunny-100: #FEF3C7;
+    --color-sunny-300: #FCD34D;
+    --color-sunny-400: #FBBF24;
+    --color-sunny-500: #F59E0B;
+    --color-sunny-600: #D97706;
+    --color-sunny-900: #78350F;
+
+    /* ── Flux accent → Teal ── */
+    --color-accent:            #0D9488;
+    --color-accent-content:    #0D9488;
+    --color-accent-foreground: #FFFFFF;
+
+    /* ── Zinc (kept for Flux internals) ── */
+    --color-zinc-50:  #fafafa;
+    --color-zinc-100: #f5f5f5;
+    --color-zinc-200: #e5e5e5;
+    --color-zinc-300: #d4d4d4;
+    --color-zinc-400: #a3a3a3;
+    --color-zinc-500: #737373;
+    --color-zinc-600: #525252;
+    --color-zinc-700: #404040;
+    --color-zinc-800: #262626;
+    --color-zinc-900: #171717;
+    --color-zinc-950: #0a0a0a;
+
+    /* ── Bento radii ── */
+    --radius-bento:       14px;
+    --radius-bento-inner: 10px;
+
+    /* ── Shadows ── */
+    --shadow-bento:       0 1px 3px 0 rgba(31,41,55,.06), 0 1px 2px -1px rgba(31,41,55,.04);
+    --shadow-bento-hover: 0 8px 28px -4px rgba(31,41,55,.10), 0 2px 6px -2px rgba(31,41,55,.06);
+}
+
+/* ═══════════════════════════════════════════
+   Base
+   ═══════════════════════════════════════════ */
+@layer base {
+    :root {
+        color-scheme: light;
+    }
+
+    html {
+        background-color: #F8F9FA;
+        color: #1F2937;
+    }
+
+    body {
+        background-color: #F8F9FA;
+        color: #1F2937;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        letter-spacing: -0.025em;
+        font-weight: 700;
+        color: #1F2937;
+    }
+
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-border);
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Bento Card System
+   ═══════════════════════════════════════════ */
+@layer components {
+
+    /* ── Core card ── */
+    .bento-card {
+        background-color: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-bento);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-bento);
+        transition:
+            box-shadow 220ms cubic-bezier(.4,0,.2,1),
+            border-color 220ms cubic-bezier(.4,0,.2,1),
+            transform 220ms cubic-bezier(.4,0,.2,1);
+    }
+
+    .bento-card:hover {
+        box-shadow: var(--shadow-bento-hover);
+        border-color: var(--color-border-hover);
+        transform: translateY(-2px);
+    }
+
+    /* ── Flat — no lift (inside forms, settings) ── */
+    .bento-flat {
+        background-color: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-bento);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-bento);
+    }
+
+    /* ── Teal highlight card ── */
+    .bento-teal {
+        background-color: var(--color-teal-600);
+        border: none;
+        border-radius: var(--radius-bento);
+        padding: 2rem;
+        color: white;
+        box-shadow: 0 8px 32px -4px rgba(13,148,136,.35);
+    }
+
+    /* ── Canvas cell (subtle off-white) ── */
+    .bento-canvas {
+        background-color: var(--color-canvas);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-bento);
+        padding: 1.5rem;
+    }
+
+    /* ── Icon badges ── */
+    .icon-teal {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        background-color: var(--color-teal-50);
+        color: var(--color-teal-700);
+        border-radius: var(--radius-bento-inner);
+        flex-shrink: 0;
+    }
+
+    .icon-sunny {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        background-color: var(--color-sunny-100);
+        color: var(--color-sunny-600);
+        border-radius: var(--radius-bento-inner);
+        flex-shrink: 0;
+    }
+
+    .icon-canvas {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        background-color: var(--color-canvas);
+        color: var(--color-charcoal-600);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-bento-inner);
+        flex-shrink: 0;
+    }
+
+    /* ── Sunny badge pill ── */
+    .badge-sunny {
+        display: inline-flex;
+        align-items: center;
+        gap: .375rem;
+        background-color: var(--color-sunny-100);
+        color: var(--color-sunny-900);
+        border: 1px solid var(--color-sunny-300);
+        border-radius: 999px;
+        padding: .2rem .65rem;
+        font-size: .75rem;
+        font-weight: 600;
+        letter-spacing: .01em;
+    }
+
+    /* ── Progress bar — sunny yellow ── */
+    .progress-bar {
+        background-color: var(--color-sunny-100);
+        border-radius: 999px;
+        overflow: hidden;
+        height: 8px;
+    }
+
+    .progress-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--color-sunny-400), var(--color-sunny-500));
+        transition: width 700ms cubic-bezier(.4,0,.2,1);
+    }
+
+    /* ── Frosted glass nav bar ── */
+    .glass-bar {
+        background-color: rgba(248, 249, 250, 0.85);
+        backdrop-filter: blur(14px) saturate(1.2);
+        -webkit-backdrop-filter: blur(14px) saturate(1.2);
+        border-bottom: 1px solid rgba(229, 231, 235, 0.85);
+    }
+
+    /* ── Teal primary button (inline helper) ── */
+    .btn-teal {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .5rem;
+        background-color: var(--color-teal-600);
+        color: white;
+        font-weight: 600;
+        font-size: .875rem;
+        padding: .625rem 1.25rem;
+        border-radius: var(--radius-bento-inner);
+        border: none;
+        cursor: pointer;
+        transition: background-color 150ms ease, box-shadow 150ms ease;
+        text-decoration: none;
+    }
+
+    .btn-teal:hover {
+        background-color: var(--color-teal-700);
+        box-shadow: 0 4px 14px -2px rgba(13,148,136,.4);
+    }
+
+    /* ── Score colours ── */
+    .score-pass { color: var(--color-teal-600); }
+    .score-warn { color: var(--color-sunny-500); }
+    .score-fail { color: #DC2626; }
+
+    /* ── Divider ── */
+    .divider {
+        border: none;
+        border-top: 1px solid var(--color-border);
+        margin: 1.5rem 0;
+    }
+
+    /* ── Bento category card — Soft Pink tint (≈4% opacity) ── */
+    /* Applies to specific Bento cards to distinguish quiz categories */
+    .bento-category {
+        background-color: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-bento);
+        padding: 1.5rem;
+        box-shadow: var(--shadow-bento);
+        background-image: linear-gradient(
+            135deg,
+            rgba(255, 227, 225, 0.18) 0%,
+            rgba(255, 148, 148, 0.04) 100%
+        );
+        transition:
+            box-shadow 220ms cubic-bezier(.4,0,.2,1),
+            border-color 220ms cubic-bezier(.4,0,.2,1),
+            transform 220ms cubic-bezier(.4,0,.2,1);
+    }
+
+    .bento-category:hover {
+        box-shadow: var(--shadow-bento-hover);
+        border-color: rgba(255, 148, 148, 0.35);
+        transform: translateY(-2px);
+    }
+
+    /* ── Coral icon badge (achievement / interactive) ── */
+    .icon-coral {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.75rem;
+        height: 2.75rem;
+        background-color: var(--color-coral-50);
+        color: var(--color-coral-700);
+        border-radius: var(--radius-bento-inner);
+        flex-shrink: 0;
+    }
+
+    /* ── Coral badge pill (achievement notifications) ── */
+    .badge-coral {
+        display: inline-flex;
+        align-items: center;
+        gap: .375rem;
+        background-color: var(--color-coral-50);
+        color: var(--color-coral-700);
+        border: 1px solid rgba(255, 148, 148, 0.35);
+        border-radius: 999px;
+        padding: .2rem .65rem;
+        font-size: .75rem;
+        font-weight: 600;
+        letter-spacing: .01em;
+    }
+
+    /* ── Coral notification dot ── */
+    .dot-coral {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--color-coral);
+        flex-shrink: 0;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Flux component overrides
+   ═══════════════════════════════════════════ */
+[data-flux-field]:not(ui-radio, ui-checkbox) {
+    @apply grid gap-2;
+}
+
+[data-flux-label] {
+    @apply !mb-0 !leading-tight;
+}
+
+/* ── Flux typography — enforce design system text colors ── */
+/* flux.css uses [:where(&)] (zero specificity); an attribute selector wins  */
+[data-flux-heading] {
+    color: #1F2937;
+}
+
+[data-flux-subheading] {
+    color: #4B5563;
+}
+
+[data-flux-label] {
+    color: #1F2937;
+}
+
+[data-flux-description] {
+    color: #6B7280;
+}
+
+/* ── Teal accent — override Flux's default zinc-800 ── */
+@layer theme {
+    :root {
+        --color-accent:            #0D9488;
+        --color-accent-content:    #0D9488;
+        --color-accent-foreground: #FFFFFF;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Bento Form Elements
+   ─────────────────────────────────────────
+   White surface · 12 px radius · 1.5 px border
+   Teal focus border + soft glow
+   ═══════════════════════════════════════════ */
+
+/* ── Text / number / email / password / search inputs ── */
+input[data-flux-control] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+    border-color: var(--color-border) !important;
+    border-bottom-color: var(--color-border-hover) !important;
+    background-color: var(--color-surface) !important;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+    height: auto !important;
+    min-height: 2.75rem;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+input[data-flux-control]:focus,
+input[data-flux-control]:focus-visible {
+    outline: none !important;
+    border-color: var(--color-teal-600) !important;
+    border-bottom-color: var(--color-teal-600) !important;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12) !important;
+}
+
+/* ── Textarea ── */
+textarea[data-flux-control] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+    border-color: var(--color-border) !important;
+    border-bottom-color: var(--color-border-hover) !important;
+    background-color: var(--color-surface) !important;
+    padding: 0.75rem 0.875rem !important;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+textarea[data-flux-control]:focus,
+textarea[data-flux-control]:focus-visible {
+    outline: none !important;
+    border-color: var(--color-teal-600) !important;
+    border-bottom-color: var(--color-teal-600) !important;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12) !important;
+}
+
+/* ── Native select ── */
+select[data-flux-select-native] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+    border-color: var(--color-border) !important;
+    border-bottom-color: var(--color-border-hover) !important;
+    background-color: var(--color-surface) !important;
+    height: auto !important;
+    min-height: 2.75rem;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+select[data-flux-select-native]:focus,
+select[data-flux-select-native]:focus-visible {
+    outline: none !important;
+    border-color: var(--color-teal-600) !important;
+    border-bottom-color: var(--color-teal-600) !important;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12) !important;
+}
+
+/* ── Checkbox & Radio focus-visible ring ── */
+ui-checkbox[data-flux-control]:focus-visible,
+ui-radio[data-flux-control]:focus-visible {
+    outline: 2px solid var(--color-teal-600) !important;
+    outline-offset: 3px !important;
+    border-radius: 4px;
+}
+
+/* ── Radio cards — Bento aesthetic ── */
+ui-radio[data-flux-radio-cards] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+    background-color: var(--color-surface) !important;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease !important;
+}
+
+/* after: pseudo overlay also needs matching radius */
+ui-radio[data-flux-radio-cards]::after {
+    border-radius: 10px !important;
+}
+
+ui-radio[data-flux-radio-cards]:not([data-checked]):hover {
+    background-color: #fafaf9 !important;
+    border-color: var(--color-border-hover) !important;
+}
+
+ui-radio[data-flux-radio-cards][data-checked] {
+    border-color: var(--color-teal-600) !important;
+    box-shadow: 0 0 0 1px var(--color-teal-600), 0 4px 14px -2px rgba(13, 148, 136, 0.15) !important;
+}
+
+/* ── Quiz option card (raw HTML radio labels in take-exam) ── */
+.quiz-option {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    cursor: pointer;
+    border-radius: 12px;
+    border: 1.5px solid var(--color-border);
+    padding: 0.875rem 1.125rem;
+    background-color: var(--color-surface);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+    user-select: none;
+}
+
+.quiz-option:hover {
+    border-color: var(--color-border-hover);
+    background-color: #fafaf9;
+}
+
+.quiz-option:has(input:checked),
+.quiz-option--selected {
+    border-color: var(--color-teal-600);
+    background-color: var(--color-teal-50);
+    box-shadow: 0 0 0 1px var(--color-teal-600), 0 4px 14px -2px rgba(13, 148, 136, 0.12);
+}
+
+.quiz-option input[type="radio"] {
+    accent-color: var(--color-teal-600);
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.quiz-option span {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--color-charcoal-900);
+    line-height: 1.5;
+}
