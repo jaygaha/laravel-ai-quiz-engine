@@ -7,6 +7,15 @@
 @source '../../vendor/livewire/flux/stubs/**/*.blade.php';
 
 /* ─────────────────────────────────────────────────────
+   Force class-based dark mode — we NEVER add .dark to
+   <html>, so dark: variants never fire regardless of OS
+   preference. This prevents Flux's dark:text-white/80,
+   dark:placeholder-white/60 etc. from making text
+   invisible on our light backgrounds.
+   ───────────────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────
    QuizForge Design System — Light Mode Only
    ─────────────────────────────────────────────────────
    Off-White        #F8F9FA                  — canvas bg
@@ -401,6 +410,7 @@ input[data-flux-control] {
     border-color: var(--color-border) !important;
     border-bottom-color: var(--color-border-hover) !important;
     background-color: var(--color-surface) !important;
+    color: #1F2937 !important;
     padding-top: 0.625rem !important;
     padding-bottom: 0.625rem !important;
     height: auto !important;
@@ -423,6 +433,7 @@ textarea[data-flux-control] {
     border-color: var(--color-border) !important;
     border-bottom-color: var(--color-border-hover) !important;
     background-color: var(--color-surface) !important;
+    color: #1F2937 !important;
     padding: 0.75rem 0.875rem !important;
     transition: border-color 150ms ease, box-shadow 150ms ease;
 }
@@ -442,6 +453,7 @@ select[data-flux-select-native] {
     border-color: var(--color-border) !important;
     border-bottom-color: var(--color-border-hover) !important;
     background-color: var(--color-surface) !important;
+    color: #1F2937 !important;
     height: auto !important;
     min-height: 2.75rem;
     padding-top: 0.625rem !important;
@@ -527,4 +539,11 @@ ui-radio[data-flux-radio-cards][data-checked] {
     font-weight: 500;
     color: var(--color-charcoal-900);
     line-height: 1.5;
+}
+
+/* ── Placeholder text — always medium gray, never white ── */
+input[data-flux-control]::placeholder,
+textarea[data-flux-control]::placeholder {
+    color: #9CA3AF !important;
+    opacity: 1 !important;
 }
