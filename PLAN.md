@@ -1,6 +1,6 @@
 # QuizForge — Phased Development Plan
 
-A production-ready SaaS exam engine built on Laravel 12, Livewire 4, and the Laravel AI SDK. The plan is split into seven phases — each independently shippable and tested. Phases 0–2 are complete. Phases 3–6 deliver the AI features and production hardening that elevate the project from a working CRUD app to a differentiated product.
+A production-ready SaaS exam engine built on Laravel 12, Livewire 4, and the Laravel AI SDK. The plan is split into seven phases — each independently shippable and tested. Phases 0–3 are complete. Phases 4–6 deliver the real-time features, advanced AI, and production hardening that elevate the project from a working AI app to a differentiated product.
 
 **Legend:** ✅ Complete · 🔜 Next · 📋 Planned · ⏸ Deferred
 
@@ -135,66 +135,129 @@ The full data layer and both role-specific user journeys, with comprehensive tes
 
 ---
 
-## Phase 3 — Laravel AI SDK Integration 🔜 Next
+## Phase 3 — Laravel AI SDK Integration ✅ Complete
 
-This phase transforms the app from a standard quiz platform into an AI-powered learning tool. All heavy generation runs in queued jobs.
+This phase transforms the app from a standard quiz platform into an AI-powered learning tool. All heavy generation runs in queued jobs. Uses the official **`laravel/ai` v0.3+** SDK.
 
 ### Prerequisites
 ```bash
-composer require laravel/ai
-php artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
-php artisan migrate  # publishes AI SDK tables if any
+./vendor/bin/sail composer require laravel/ai
+./vendor/bin/sail artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
+./vendor/bin/sail artisan migrate  # creates agent_conversations + agent_conversation_messages tables
 ```
 
 Add to `.env`:
 ```env
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-AI_DEFAULT_PROVIDER=openai
+# Production priority: Anthropic → Gemini → OpenAI
+ANTHROPIC_API_KEY=sk-ant-...   # Primary — Claude Sonnet (generation) / Haiku (grading, hints)
+GEMINI_API_KEY=...              # Secondary fallback
+OPENAI_API_KEY=sk-...           # Tertiary fallback
+
+# Local dev fallback — no key required, works fully offline
+# Locally available models:
+#   qwen2.5-coder:14b  → QuestionGeneratorAgent (best structured output)
+#   qwen3:8b           → AutoGraderAgent (best reasoning)
+#   gemma3:4b          → HintAgent (fastest streaming)
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_API_KEY=
+```
+
+### SDK Key Patterns
+
+**Create agents via Artisan:**
+```bash
+php artisan make:agent QuestionGeneratorAgent --structured
+php artisan make:agent AutoGraderAgent --structured
+php artisan make:agent HintAgent
+```
+
+**Structured output agent pattern:**
+```php
+#[Provider(Lab::Anthropic)]
+#[Model('claude-sonnet-4-6')]
+#[MaxTokens(2048)]
+#[Temperature(0.7)]
+class QuestionGeneratorAgent implements Agent, HasStructuredOutput
+{
+    use Promptable;
+
+    public function instructions(): string { ... }
+    public function schema(JsonSchema $schema): array { ... }
+}
+
+$response = (new QuestionGeneratorAgent)->prompt($userPrompt);
+$questions = $response['questions'];
+```
+
+**Streaming pattern (Livewire `wire:stream`):**
+```php
+public function streamHint(): void
+{
+    $stream = (new HintAgent)->stream($this->buildPrompt());
+    foreach ($stream as $event) {
+        $this->stream(to: 'hint', content: $event->text ?? '');
+    }
+}
+```
+
+**Queued pattern:**
+```php
+(new QuestionGeneratorAgent)
+    ->queue($prompt)
+    ->then(fn (AgentResponse $r) => /* persist to DB */);
+```
+
+**Testing (zero real API calls):**
+```php
+QuestionGeneratorAgent::fake(['questions' => [...]]);
+QuestionGeneratorAgent::assertPrompted(fn ($p) => $p->contains('PHP'));
 ```
 
 ### Tasks
 
-**Agent scaffolding**
-- [ ] `php artisan make:agent QuestionGeneratorAgent`
-- [ ] `php artisan make:agent AutoGraderAgent`
-- [ ] `php artisan make:agent HintAgent`
-- [ ] `php artisan make:tool SimilaritySearchTool`
+**1 — Install & configure**
+- [x] `composer require laravel/ai` (v0.3+)
+- [x] Publish config + run migrations (`agent_conversations`, `agent_conversation_messages` tables)
+- [x] Add provider keys to `.env.example` with placeholder comments
+- [x] Update `config/ai.php` — default provider set to `anthropic`; Anthropic, Gemini, OpenAI, Ollama all configured
+- [x] Add `OLLAMA_BASE_URL` + `OLLAMA_API_KEY` to `.env.example` for local dev (no key needed, set base URL to `http://localhost:11434`)
 
-**QuestionGeneratorAgent** — structured-output agent
-- [ ] `instructions()` defines an expert exam author persona
-- [ ] `schema()` returns a typed array of questions (question text, options, correct answer, difficulty 1–5, explanation)
-- [ ] Accepts: topic string, question count, question type, difficulty level
-- [ ] Returns: `array<Question>` validated against the schema
-- [ ] Provider failover: OpenAI primary, Anthropic fallback
-- [ ] Integration: "Generate with AI" button on `teacher.exams.questions` page streams results into the question list
-- [ ] Queued generation path: `->queue()->then(fn($result) => ...)` for large batches
+**2 — QuestionGeneratorAgent** (`app/Ai/Agents/QuestionGeneratorAgent.php`)
+- [x] `php artisan make:agent QuestionGeneratorAgent --structured`
+- [x] `instructions()` — expert exam-author persona, language + format constraints
+- [x] `schema()` — returns array of `{ question, type, options[], correct_answer, explanation, difficulty (1–5) }` using `$schema->object([...])`
+- [x] Provider: `#[Provider(Lab::Anthropic)]` `#[Model('claude-sonnet-4-6')]` — primary; `resolvedProviders()` adds Gemini → OpenAI → Ollama (`qwen2.5-coder:14b`) in order
+- [x] Integration: "Generate with AI" collapsible panel on `⚡questions.blade.php`
+  - Inputs: topic, question type, count (1–10), difficulty
+  - On submit: calls agent → appends generated questions to the live list for teacher review before saving
+- [x] Queued path via `->queue()` for batches > 5 questions; `ProcessGeneratedQuestionsJob` dispatched in `then()` callback
 
-**AutoGraderAgent** — structured-output agent for Short Answer questions
-- [ ] Scores a student's free-text answer against the correct answer and question context
-- [ ] Returns: `score` (0–100), `is_correct` (bool), `explanation` (string), `suggestion` (string)
-- [ ] Called during attempt submission for all `ShortAnswer` questions; result persisted to `attempts.answers` JSON alongside the raw answer
-- [ ] Falls back to exact-match scoring if AI call fails (graceful degradation)
+**3 — AutoGraderAgent** (`app/Ai/Agents/AutoGraderAgent.php`)
+- [x] `php artisan make:agent AutoGraderAgent --structured`
+- [x] `instructions()` — objective grader persona, partial-credit aware
+- [x] `schema()` — `{ score (0–100), is_correct (bool), explanation, suggestion }`
+- [x] Provider: `#[Provider(Lab::Anthropic)]` `#[Model('claude-haiku-4-5-20251001')]`
+- [x] Wired into `submitExam()` on `⚡take-exam.blade.php`:
+  - Exact-match for `MultipleChoice` + `TrueFalse` (unchanged)
+  - AI grading for `ShortAnswer` — result stored as `{ raw_answer, ai_score, ai_explanation, ai_suggestion, ai_graded: true }` in `attempts.answers` JSON
+  - Graceful fallback: if agent throws, falls back to exact-match scoring
+- [x] `⚡exam-results.blade.php` shows AI score badge, explanation, and suggestion for short-answer questions
 
-**HintAgent** — streaming agent
-- [ ] Accepts: question text, student's current answer (may be null), exam subject
-- [ ] Streams a Socratic hint — never reveals the answer directly
-- [ ] Student UI: "Hint" button on the exam-taking page; streams token-by-token into a `<flux:callout>`
+**4 — HintAgent** (`app/Ai/Agents/HintAgent.php`)
+- [x] `php artisan make:agent HintAgent`
+- [x] `instructions()` — Socratic tutor, never reveals the answer, guides via leading questions
+- [x] Provider: `#[Provider(Lab::Anthropic)]` `#[Model('claude-haiku-4-5-20251001')]` `#[Timeout(30)]`
+- [x] Streaming via `HintAgent->stream()` iterating `TextDelta` events + Livewire `$this->stream()` to `wire:stream="hint-{id}"` target
+- [x] "Get a Hint" button on `⚡take-exam.blade.php` — only for `ShortAnswer` questions; Alpine shows hint area on click
 
-**Provider configuration**
-- [ ] Register providers in `config/ai.php`
-- [ ] Per-agent provider selection configurable via `.env`
-- [ ] Cost guard: `max_tokens` and `temperature` set per agent
-
-**Tests**
-- [ ] Use `AI::fake()` mock for all agent tests — no real API calls in CI
-- [ ] `QuestionGeneratorTest` — valid schema output, handles malformed responses, queued path
-- [ ] `AutoGraderTest` — correct, incorrect, and partial scores; fallback on AI failure
-- [ ] `HintTest` — streaming response; no answer leakage
+**5 — Tests** (zero real API calls in CI)
+- [x] `tests/Feature/Ai/QuestionGeneratorTest.php` — 6 tests: sync generation, queued dispatch, confirm single/all, job creates questions, job skips incomplete entries
+- [x] `tests/Feature/Ai/AutoGraderTest.php` — 5 tests: AI grades and stores structured result, correct/incorrect score thresholds, results page displays AI badge and suggestion
+- [x] `tests/Feature/Ai/HintTest.php` — 4 tests: hint text stored in `$hints`, agent was prompted, invalid question returns early, streaming events confirmed
 
 ---
 
-## Phase 4 — Frontend Polish + Real-time Features 📋 Planned
+## Phase 4 — Frontend Polish + Real-time Features 🔜 Next
 
 Streaming UI, broadcasting, PDF export, and the full Livewire reactivity upgrade.
 

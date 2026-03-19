@@ -35,7 +35,7 @@ A full-stack SaaS-style application where teachers create and publish exams, stu
 
 ## Overview
 
-QuizForge is a **phased learning project** that demonstrates how to build a production-ready SaaS application on the modern Laravel stack. The core exam engine (multi-role auth, exam CRUD, student exam-taking, auto-scoring) is fully implemented. Future phases layer the **Laravel AI SDK** on top for structured-output question generation, RAG-based auto-grading, semantic question search via `pgvector`, and real-time streaming.
+QuizForge is a **phased learning project** that demonstrates how to build a production-ready SaaS application on the modern Laravel stack. The core exam engine (multi-role auth, exam CRUD, student exam-taking, auto-scoring) is fully implemented and the **Laravel AI SDK** integration (Phase 3) is complete — covering structured-output question generation, AI auto-grading for short answers, and real-time hint streaming. Future phases add real-time broadcasting, RAG via `pgvector`, and production hardening.
 
 The project is also a reference implementation for:
 
@@ -60,7 +60,7 @@ The project is also a reference implementation for:
 | Code Style | Laravel Pint |
 | Dev Tooling | Laravel Sail (Docker), Laravel Boost (MCP), Laravel Pail |
 | CI/CD | GitHub Actions |
-| AI (planned) | Laravel AI SDK, OpenAI / Anthropic / Gemini |
+| AI | Laravel AI SDK v0.3+ — Anthropic (primary), Gemini, OpenAI, Ollama (local dev) |
 
 ---
 
@@ -79,12 +79,14 @@ The project is also a reference implementation for:
 - Draft / Published workflow — students only see published exams
 - Manage questions per exam: Multiple Choice, True / False, Short Answer
 - Drag-free manual ordering of questions
+- **AI question generation** — "Generate with AI" panel with topic, type, count (1–10), and difficulty inputs; review and confirm/discard before saving; batches > 5 are queued
 
 **Student**
 - Dashboard listing all published exams available to take
 - Exam-taking interface with per-question navigation and optional countdown timer
-- Automatic answer scoring on submission
-- Results page with per-question feedback and overall score
+- Automatic answer scoring on submission (exact-match for MC/TF; **AI-graded for Short Answer**)
+- **Real-time hints** — "Get a Hint" button streams a Socratic hint for short-answer questions via `wire:stream`
+- Results page with per-question feedback, AI score badge, explanation, and improvement suggestion
 
 **Platform**
 - Light-mode-only Bento-grid UI (Laravel.com aesthetic)
@@ -92,14 +94,12 @@ The project is also a reference implementation for:
 - Fully responsive — sidebar collapses to mobile drawer
 - Settings: profile, security (2FA + recovery codes)
 
-### Planned (AI Phase)
+### Planned
 
-- AI question generation via structured-output agents (OpenAI / Anthropic)
-- Short-answer auto-grading with explanation feedback
-- Semantic similarity search on question bank (`pgvector` + embeddings)
-- Personalised question recommendations based on past attempt embeddings
-- Streaming question generation in the teacher UI
-- Real-time student score broadcasts (Laravel Reverb)
+- Streaming token-by-token question generation in the teacher UI (Phase 4)
+- Real-time student score broadcasts via Laravel Reverb (Phase 4)
+- Semantic similarity search on question bank (`pgvector` + embeddings) (Phase 5)
+- Personalised question recommendations based on past attempt embeddings (Phase 5)
 
 ---
 
@@ -239,11 +239,14 @@ Visit `http://localhost:8000`.
 | `MAIL_MAILER` | `log` | `log` locally, `smtp`/`ses` in production |
 | `BROADCAST_CONNECTION` | `log` | Set to `reverb` when real-time features land |
 
-> **AI phase variables (coming in Phase 3):**
+> **AI provider variables (Phase 3 — provider priority: Anthropic → Gemini → OpenAI):**
 > ```env
-> OPENAI_API_KEY=sk-...
-> ANTHROPIC_API_KEY=sk-ant-...
-> AI_DEFAULT_PROVIDER=openai
+> ANTHROPIC_API_KEY=sk-ant-...    # Primary: Claude Sonnet (generation) / Haiku (grading, hints)
+> GEMINI_API_KEY=...               # Secondary fallback
+> OPENAI_API_KEY=sk-...            # Tertiary fallback
+> # Local dev (no key required):
+> OLLAMA_BASE_URL=http://localhost:11434
+> OLLAMA_API_KEY=
 > ```
 
 ---
@@ -277,6 +280,7 @@ The test suite uses **Pest 4** against a live PostgreSQL instance (same engine a
 | Core | 3 files | Dashboard routing, role middleware, exam CRUD |
 | Student | 1 file | Exam taking, answer submission, score calculation |
 | Settings | 2 files | Profile update, security settings |
+| AI | 3 files | Question generation (sync + queued), auto-grading, hint streaming |
 
 ---
 
@@ -306,6 +310,11 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 ```
 .
 ├── app/
+│   ├── Ai/
+│   │   └── Agents/
+│   │       ├── AutoGraderAgent.php        # Structured: grades ShortAnswer (score, explanation, suggestion)
+│   │       ├── HintAgent.php              # Streaming: Socratic hint for short-answer questions
+│   │       └── QuestionGeneratorAgent.php # Structured: generates questions by topic/type/difficulty
 │   ├── Actions/Fortify/       # User creation and password reset logic
 │   ├── Concerns/              # Shared validation rule traits
 │   ├── Enums/
@@ -315,6 +324,8 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │   │   ├── Controllers/       # Minimal — UI is Livewire-first
 │   │   └── Middleware/
 │   │       └── EnsureUserRole.php
+│   ├── Jobs/
+│   │   └── ProcessGeneratedQuestionsJob.php  # Queued: persists AI-generated questions to DB
 │   ├── Livewire/Actions/
 │   │   └── Logout.php
 │   ├── Models/
@@ -326,9 +337,12 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │       ├── AppServiceProvider.php
 │       └── FortifyServiceProvider.php
 │
+├── config/
+│   └── ai.php                 # Laravel AI SDK — default: anthropic; all 4 providers configured
+│
 ├── database/
 │   ├── factories/             # Exam, Question, Attempt, User factories
-│   ├── migrations/            # 8 migrations — all schema-complete
+│   ├── migrations/            # 10 migrations — all schema-complete (incl. agent_conversations)
 │   └── seeders/
 │       ├── DatabaseSeeder.php
 │       └── ExamSeeder.php
@@ -342,8 +356,8 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │       ├── pages/
 │       │   ├── auth/          # Login, register, password reset, 2FA
 │       │   ├── settings/      # Profile, security (⚡ Livewire SFCs)
-│       │   ├── student/       # Dashboard, take-exam, exam-results (⚡)
-│       │   └── teacher/exams/ # Index, create, edit, questions (⚡)
+│       │   ├── student/       # Dashboard, take-exam (AI hints), exam-results (AI scores) (⚡)
+│       │   └── teacher/exams/ # Index, create, edit, questions (AI generation panel) (⚡)
 │       └── partials/          # Head, settings-heading
 │
 ├── routes/
@@ -351,7 +365,13 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │   └── settings.php           # Auth-only settings routes
 │
 ├── tests/
-│   └── Feature/               # 13 feature test files
+│   └── Feature/
+│       ├── Ai/                # QuestionGeneratorTest, AutoGraderTest, HintTest
+│       ├── Auth/              # 6 auth test files
+│       ├── Settings/          # ProfileUpdateTest, SecurityTest
+│       ├── ExamCrudTest.php
+│       ├── StudentExamTest.php
+│       └── ...
 │
 ├── .github/
 │   ├── workflows/
@@ -374,10 +394,10 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 | 0 | Prerequisites & tooling | ✅ Complete |
 | 1 | Project setup, auth scaffolding, CI/CD | ✅ Complete |
 | 2 | Database models, migrations, factories, role system | ✅ Complete |
-| 3 | Laravel AI SDK — question generation, auto-grading, embeddings | 🔜 Next |
-| 4 | Frontend polish, streaming UI, real-time broadcasting | 🔜 Planned |
-| 5 | Advanced AI — RAG, personalisation, pgvector, cost controls | 🔜 Planned |
-| 6 | Production hardening — rate limiting, queues, deploy | 🔜 Planned |
+| 3 | Laravel AI SDK — question generation, auto-grading, hint streaming | ✅ Complete |
+| 4 | Frontend polish, streaming UI, real-time broadcasting | 🔜 Next |
+| 5 | Advanced AI — RAG, personalisation, pgvector, cost controls | 📋 Planned |
+| 6 | Production hardening — rate limiting, queues, deploy | 📋 Planned |
 
 See [`PLAN.md`](PLAN.md) for the detailed implementation plan with task breakdowns per phase.
 
