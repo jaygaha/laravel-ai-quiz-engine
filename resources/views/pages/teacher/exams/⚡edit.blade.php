@@ -17,13 +17,16 @@ new #[Title('Edit Exam')] class extends Component {
     #[Validate('nullable|integer|min:1|max:600')]
     public ?int $time_limit = null;
 
+    public bool $leaderboard_enabled = false;
+
     public function mount(): void
     {
         abort_unless(auth()->id() === $this->exam->user_id, 403);
 
-        $this->title = $this->exam->title;
-        $this->description = $this->exam->description ?? '';
-        $this->time_limit = $this->exam->time_limit;
+        $this->title               = $this->exam->title;
+        $this->description         = $this->exam->description ?? '';
+        $this->time_limit          = $this->exam->time_limit;
+        $this->leaderboard_enabled = $this->exam->leaderboard_enabled;
     }
 
     public function save(): void
@@ -31,9 +34,10 @@ new #[Title('Edit Exam')] class extends Component {
         $this->validate();
 
         $this->exam->update([
-            'title' => $this->title,
-            'description' => $this->description ?: null,
-            'time_limit' => $this->time_limit,
+            'title'               => $this->title,
+            'description'         => $this->description ?: null,
+            'time_limit'          => $this->time_limit,
+            'leaderboard_enabled' => $this->leaderboard_enabled,
         ]);
 
         $this->redirect(route('teacher.exams.index'), navigate: true);
@@ -66,7 +70,23 @@ new #[Title('Edit Exam')] class extends Component {
                 <flux:error name="time_limit" />
             </flux:field>
 
+            <flux:field variant="inline">
+                <flux:switch wire:model="leaderboard_enabled" />
+                <div>
+                    <flux:label>Enable Live Leaderboard</flux:label>
+                    <flux:description>Students can see the top-10 scores update in real time after submitting.</flux:description>
+                </div>
+            </flux:field>
+
             <div class="flex justify-end gap-3">
+                <flux:button
+                    variant="ghost"
+                    icon="eye"
+                    :href="route('student.exams.take', $exam) . '?preview=1'"
+                    wire:navigate
+                >
+                    Preview
+                </flux:button>
                 <flux:button
                     variant="ghost"
                     :href="route('teacher.exams.questions', $exam)"

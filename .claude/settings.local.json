@@ -2,5 +2,10 @@
   "enabledMcpjsonServers": [
     "laravel-boost",
     "herd"
-  ]
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)"
+    ]
+  }
 }

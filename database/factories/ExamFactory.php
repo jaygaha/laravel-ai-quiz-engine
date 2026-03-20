@@ -24,6 +24,7 @@ class ExamFactory extends Factory
             'description' => fake()->paragraph(),
             'time_limit' => fake()->randomElement([null, 15, 30, 45, 60, 90]),
             'published_at' => null,
+            'leaderboard_enabled' => false,
         ];
     }
 

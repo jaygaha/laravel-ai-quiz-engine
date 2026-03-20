@@ -103,6 +103,13 @@ return [
             'driver' => 'ollama',
             'key' => env('OLLAMA_API_KEY', ''),
             'url' => env('OLLAMA_BASE_URL', 'http://localhost:11434'),
+            'models' => [
+                'text' => [
+                    'default' => env('OLLAMA_MODEL', 'qwen3:8b'),
+                    'cheapest' => env('OLLAMA_MODEL', 'qwen3:8b'),
+                    'smartest' => env('OLLAMA_MODEL_SMART', 'qwen2.5-coder:14b'),
+                ],
+            ],
         ],
 
         'openai' => [

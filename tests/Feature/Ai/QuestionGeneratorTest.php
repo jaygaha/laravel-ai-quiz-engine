@@ -32,7 +32,7 @@ it('generates questions synchronously for 5 or fewer and stores as pending', fun
         ->set('aiType', QuestionType::MultipleChoice->value)
         ->set('aiCount', 1)
         ->set('aiDifficulty', 1)
-        ->call('generateWithAi')
+        ->call('streamGenerateWithAi')
         ->assertSet('aiError', '')
         ->assertSet('aiGenerating', false)
         ->assertCount('pendingAiQuestions', 1);
@@ -81,7 +81,7 @@ it('can confirm a single pending ai question to save it to the exam', function (
         ->set('aiType', QuestionType::ShortAnswer->value)
         ->set('aiCount', 1)
         ->set('aiDifficulty', 2)
-        ->call('generateWithAi')
+        ->call('streamGenerateWithAi')
         ->call('confirmAiQuestion', 0)
         ->assertCount('pendingAiQuestions', 0);
 
@@ -107,7 +107,7 @@ it('can confirm all pending ai questions at once', function () {
         ->set('aiType', QuestionType::ShortAnswer->value)
         ->set('aiCount', 2)
         ->set('aiDifficulty', 1)
-        ->call('generateWithAi')
+        ->call('streamGenerateWithAi')
         ->call('confirmAllAiQuestions')
         ->assertCount('pendingAiQuestions', 0);
 

@@ -1,18 +1,21 @@
 <?php
 
 use App\Ai\Agents\QuestionGeneratorAgent;
+use App\Ai\ResolvedProviders;
 use App\Enums\QuestionType;
+use App\Jobs\ImportQuestionsFromCsvJob;
 use App\Jobs\ProcessGeneratedQuestionsJob;
 use App\Models\Exam;
 use App\Models\Question;
-use Illuminate\Support\Facades\Queue;
-use Laravel\Ai\Enums\Lab;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 new #[Title('Manage Questions')] class extends Component {
+    use WithFileUploads;
+
     public Exam $exam;
 
     // --- Manual form ---
@@ -38,6 +41,10 @@ new #[Title('Manage Questions')] class extends Component {
 
     #[Validate('required|integer|min:1|max:5')]
     public int $aiDifficulty = 3;
+
+    // --- CSV Import ---
+    #[Validate('file|mimes:csv,txt|max:512')]
+    public mixed $csvFile = null;
 
     public bool $aiGenerating = false;
     public string $aiError = '';
@@ -78,8 +85,8 @@ new #[Title('Manage Questions')] class extends Component {
     public function saveQuestion(): void
     {
         $rules = [
-            'question'      => 'required|string|max:1000',
-            'type'          => 'required|string|in:'.implode(',', array_column(QuestionType::cases(), 'value')),
+            'question'       => 'required|string|max:1000',
+            'type'           => 'required|string|in:'.implode(',', array_column(QuestionType::cases(), 'value')),
             'correct_answer' => 'required|string|max:500',
         ];
 
@@ -118,6 +125,27 @@ new #[Title('Manage Questions')] class extends Component {
         $this->resetForm();
     }
 
+    public function importCsv(): void
+    {
+        $this->validateOnly('csvFile');
+
+        $path = $this->csvFile->storeAs(
+            'imports',
+            'csv-'.$this->exam->id.'-'.time().'.csv',
+            'local',
+        );
+
+        ImportQuestionsFromCsvJob::dispatch($this->exam->id, $path);
+
+        $this->csvFile = null;
+
+        session()->flash('status', 'CSV uploaded — questions will be imported shortly.');
+    }
+
+    /**
+     * Queued generation path — used for batches > 5.
+     * Also kept for backward-compat with existing tests.
+     */
     public function generateWithAi(): void
     {
         $this->validateOnly('aiTopic');
@@ -136,30 +164,64 @@ new #[Title('Manage Questions')] class extends Component {
                 difficulty: $this->aiDifficulty,
             );
 
-            $providers = $this->resolvedProviders();
+            $examId = $this->exam->id;
 
-            if ($this->aiCount > 5) {
-                $agent->queue(
-                    "Generate {$this->aiCount} questions about {$this->aiTopic}.",
-                    provider: $providers,
-                )->then(function ($response) {
-                    $data = json_decode($response->text, true);
-                    ProcessGeneratedQuestionsJob::dispatch(
-                        $this->exam->id,
-                        $data['questions'] ?? [],
-                    );
-                });
-
-                session()->flash('status', "Generating {$this->aiCount} questions in the background. Refresh in a moment.");
-            } else {
-                $response = $agent->prompt(
-                    "Generate {$this->aiCount} questions about {$this->aiTopic}.",
-                    provider: $providers,
+            $agent->queue(
+                "Generate {$this->aiCount} questions about {$this->aiTopic}.",
+                provider: ResolvedProviders::list(),
+            )->then(function ($response) use ($examId) {
+                $data = json_decode($response->text, true);
+                ProcessGeneratedQuestionsJob::dispatch(
+                    $examId,
+                    $data['questions'] ?? [],
                 );
+            });
 
-                $this->pendingAiQuestions = $response['questions'] ?? [];
+            session()->flash('status', "Generating {$this->aiCount} questions in the background. Refresh in a moment.");
+        } catch (\Throwable $e) {
+            logger()->error('AI generation failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->aiError = 'AI generation failed. Please try again or add questions manually.';
+        } finally {
+            $this->aiGenerating = false;
+        }
+    }
+
+    /**
+     * Synchronous generation path — uses prompt() instead of stream() because
+     * QuestionGeneratorAgent uses HasStructuredOutput which does not support
+     * streaming on all providers (e.g. Gemini).
+     */
+    public function streamGenerateWithAi(): void
+    {
+        $this->validateOnly('aiTopic');
+        $this->validateOnly('aiCount');
+        $this->validateOnly('aiDifficulty');
+
+        $this->aiError = '';
+        $this->aiGenerating = true;
+        $this->pendingAiQuestions = [];
+
+        try {
+            $agent = new QuestionGeneratorAgent(
+                topic: $this->aiTopic,
+                type: $this->aiType,
+                count: $this->aiCount,
+                difficulty: $this->aiDifficulty,
+            );
+
+            $response = $agent->prompt(
+                "Generate {$this->aiCount} questions about {$this->aiTopic}.",
+                provider: ResolvedProviders::list(),
+            );
+
+            $data = json_decode($response->text, true);
+            $this->pendingAiQuestions = $data['questions'] ?? [];
+
+            if (count($this->pendingAiQuestions) > 0) {
+                $this->saveToHistory();
             }
         } catch (\Throwable $e) {
+            logger()->error('AI generation failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->aiError = 'AI generation failed. Please try again or add questions manually.';
         } finally {
             $this->aiGenerating = false;
@@ -174,7 +236,7 @@ new #[Title('Manage Questions')] class extends Component {
             return;
         }
 
-        $type = QuestionType::tryFrom($data['type'] ?? '') ?? QuestionType::ShortAnswer;
+        $type  = QuestionType::tryFrom($data['type'] ?? '') ?? QuestionType::ShortAnswer;
         $order = $this->exam->questions()->max('order') + 1;
 
         $this->exam->questions()->create([
@@ -214,6 +276,20 @@ new #[Title('Manage Questions')] class extends Component {
         $this->pendingAiQuestions = array_values($this->pendingAiQuestions);
     }
 
+    /** Re-populate pendingAiQuestions from a previous generation batch stored in session. */
+    public function loadFromHistory(int $index): void
+    {
+        $history = session("ai_gen_history_{$this->exam->id}", []);
+
+        if (! isset($history[$index])) {
+            return;
+        }
+
+        $this->pendingAiQuestions = $history[$index]['questions'];
+        $this->aiTopic            = $history[$index]['topic'];
+        $this->aiType             = $history[$index]['type'];
+    }
+
     #[Computed]
     public function questions(): \Illuminate\Database\Eloquent\Collection
     {
@@ -233,29 +309,41 @@ new #[Title('Manage Questions')] class extends Component {
     }
 
     /**
-     * Return the ordered provider list: Anthropic → Gemini → Ollama (local dev).
+     * Last 5 generation batches for this exam, keyed in session.
      *
-     * @return array<int, Lab>
+     * @return array<int, array<string, mixed>>
      */
-    private function resolvedProviders(): array
+    #[Computed]
+    public function aiHistory(): array
     {
-        $providers = [Lab::Anthropic, Lab::Gemini, Lab::OpenAI];
+        return session("ai_gen_history_{$this->exam->id}", []);
+    }
 
-        if (config('ai.providers.ollama.url')) {
-            $providers[] = Lab::Ollama;
-        }
+    /** Persist the latest batch to session history (max 5 entries per exam). */
+    private function saveToHistory(): void
+    {
+        $key     = "ai_gen_history_{$this->exam->id}";
+        $history = session($key, []);
 
-        return $providers;
+        array_unshift($history, [
+            'topic'        => $this->aiTopic,
+            'type'         => $this->aiType,
+            'count'        => count($this->pendingAiQuestions),
+            'questions'    => $this->pendingAiQuestions,
+            'generated_at' => now()->format('H:i'),
+        ]);
+
+        session([$key => array_slice($history, 0, 5)]);
     }
 
     private function resetForm(): void
     {
-        $this->showForm = false;
-        $this->editingId = null;
-        $this->question = '';
-        $this->type = QuestionType::MultipleChoice->value;
+        $this->showForm     = false;
+        $this->editingId    = null;
+        $this->question     = '';
+        $this->type         = QuestionType::MultipleChoice->value;
         $this->correct_answer = '';
-        $this->options = ['', '', '', ''];
+        $this->options      = ['', '', '', ''];
         $this->resetValidation();
     }
 }; ?>
@@ -271,6 +359,17 @@ new #[Title('Manage Questions')] class extends Component {
         </div>
         @if (!$showForm && !$showAiPanel)
             <div class="flex items-center gap-2">
+                <flux:button
+                    variant="ghost"
+                    icon="eye"
+                    :href="route('student.exams.take', $exam) . '?preview=1'"
+                    wire:navigate
+                >
+                    Preview
+                </flux:button>
+                <flux:modal.trigger name="csv-import">
+                    <flux:button variant="ghost" icon="arrow-up-tray">Import CSV</flux:button>
+                </flux:modal.trigger>
                 <flux:button variant="filled" icon="sparkles" wire:click="toggleAiPanel">
                     Generate with AI
                 </flux:button>
@@ -285,7 +384,7 @@ new #[Title('Manage Questions')] class extends Component {
         <flux:callout variant="success" icon="check-circle" heading="{{ session('status') }}" />
     @endif
 
-    {{-- AI Generation Panel --}}
+    {{-- ── AI Generation Panel ── --}}
     @if ($showAiPanel)
         <div class="bento-flat space-y-4">
             <div class="flex items-center gap-2">
@@ -320,6 +419,7 @@ new #[Title('Manage Questions')] class extends Component {
                 <flux:field>
                     <flux:label>Number of Questions</flux:label>
                     <flux:input wire:model="aiCount" type="number" min="1" max="10" />
+                    <flux:description>Up to 5 stream live · 6–10 run in background</flux:description>
                     <flux:error name="aiCount" />
                 </flux:field>
 
@@ -336,33 +436,90 @@ new #[Title('Manage Questions')] class extends Component {
                 </flux:field>
             </div>
 
-            <div class="flex justify-end">
+            <div class="flex items-center justify-between">
+                {{-- Generate button --}}
                 <flux:button
                     variant="primary"
                     icon="sparkles"
-                    wire:click="generateWithAi"
-                    wire:loading.attr="disabled"
-                    wire:target="generateWithAi"
+                    x-on:click="$wire.streamGenerateWithAi()"
+                    :disabled="$aiGenerating"
                 >
-                    <span wire:loading.remove wire:target="generateWithAi">Generate</span>
-                    <span wire:loading wire:target="generateWithAi">Generating…</span>
+                    @if ($aiGenerating)
+                        <flux:icon.sparkles class="animate-spin size-4" /> Generating…
+                    @else
+                        Generate
+                    @endif
                 </flux:button>
+
+                @if ($aiGenerating)
+                    <flux:text size="sm" class="text-charcoal-400 animate-pulse">
+                        Generating questions… please wait.
+                    </flux:text>
+                @endif
+            </div>
+
+            {{-- Skeleton cards shown while generating --}}
+            @if ($aiGenerating)
+                <div class="space-y-3">
+                    @for ($s = 0; $s < min($aiCount, 3); $s++)
+                        <div class="bento-flat animate-pulse space-y-3 border-teal-100 bg-teal-50/40">
+                            <div class="h-4 bg-teal-100 rounded w-3/4"></div>
+                            <div class="flex gap-2">
+                                <div class="h-3 bg-teal-100 rounded w-16"></div>
+                                <div class="h-3 bg-teal-100 rounded w-20"></div>
+                            </div>
+                            <div class="h-3 bg-teal-100 rounded w-1/2"></div>
+                        </div>
+                    @endfor
+                </div>
+            @endif
+        </div>
+    @endif
+
+    {{-- ── Generation History ── --}}
+    @if ($showAiPanel && count($this->aiHistory) > 0 && ! $aiGenerating && count($pendingAiQuestions) === 0)
+        <div class="bento-flat space-y-3">
+            <flux:heading size="sm">Recent Generations</flux:heading>
+            <div class="space-y-2">
+                @foreach ($this->aiHistory as $hi => $batch)
+                    <div class="flex items-center justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
+                        <div class="flex items-center gap-3">
+                            <flux:badge size="sm" color="zinc">{{ $batch['generated_at'] }}</flux:badge>
+                            <flux:text size="sm">
+                                <strong>{{ $batch['topic'] }}</strong>
+                                · {{ $batch['count'] }} question(s)
+                                · {{ QuestionType::from($batch['type'])->label() }}
+                            </flux:text>
+                        </div>
+                        <flux:button size="sm" variant="ghost" wire:click="loadFromHistory({{ $hi }})">
+                            Re-use
+                        </flux:button>
+                    </div>
+                @endforeach
             </div>
         </div>
     @endif
 
-    {{-- Pending AI Questions --}}
+    {{-- ── Pending AI Questions ── --}}
     @if (count($pendingAiQuestions) > 0)
         <div class="space-y-3">
             <div class="flex items-center justify-between">
-                <flux:heading size="lg">Review Generated Questions</flux:heading>
+                <div class="flex items-center gap-2">
+                    <flux:heading size="lg">Review Generated Questions</flux:heading>
+                </div>
                 <flux:button variant="primary" size="sm" wire:click="confirmAllAiQuestions">
                     Add All ({{ count($pendingAiQuestions) }})
                 </flux:button>
             </div>
 
             @foreach ($pendingAiQuestions as $i => $pq)
-                <div class="bento-flat space-y-2 border-teal-200 bg-teal-50" wire:key="pending-{{ $i }}">
+                <div
+                    class="bento-flat space-y-2 border-teal-200 bg-teal-50"
+                    wire:key="pending-{{ $i }}"
+                    x-data x-transition:enter="transition ease-out duration-300"
+                    x-transition:enter-start="opacity-0 translate-y-2"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                >
                     <div class="flex items-start justify-between gap-3">
                         <flux:text class="font-medium">{{ $pq['question'] }}</flux:text>
                         <flux:badge size="sm" color="teal">AI</flux:badge>
@@ -379,10 +536,9 @@ new #[Title('Manage Questions')] class extends Component {
                     @if (!empty($pq['options']))
                         <div class="flex flex-wrap gap-1">
                             @foreach ($pq['options'] as $opt)
-                                <flux:badge
-                                    size="sm"
-                                    :color="$opt === $pq['correct_answer'] ? 'green' : 'zinc'"
-                                >{{ $opt }}</flux:badge>
+                                <flux:badge size="sm" :color="$opt === $pq['correct_answer'] ? 'green' : 'zinc'">
+                                    {{ $opt }}
+                                </flux:badge>
                             @endforeach
                         </div>
                     @endif
@@ -404,7 +560,7 @@ new #[Title('Manage Questions')] class extends Component {
         </div>
     @endif
 
-    {{-- Manual Question Form --}}
+    {{-- ── Manual Question Form ── --}}
     @if ($showForm)
         <div class="bento-flat space-y-4">
             <flux:heading size="lg">{{ $editingId ? 'Edit Question' : 'New Question' }}</flux:heading>
@@ -454,7 +610,37 @@ new #[Title('Manage Questions')] class extends Component {
         </div>
     @endif
 
-    {{-- Question List --}}
+    {{-- ── CSV Import Modal ── --}}
+    <flux:modal name="csv-import">
+        <div class="space-y-4">
+            <div>
+                <flux:heading size="lg">Import Questions from CSV</flux:heading>
+                <flux:text>
+                    Upload a CSV with columns:
+                    <code class="text-xs bg-zinc-100 px-1 rounded">question, type, options, correct_answer</code>.
+                    Options for multiple-choice should be pipe-separated (e.g. <code class="text-xs bg-zinc-100 px-1 rounded">A|B|C|D</code>).
+                    Malformed rows are skipped.
+                </flux:text>
+            </div>
+
+            <flux:field>
+                <flux:label>CSV File</flux:label>
+                <flux:input type="file" wire:model="csvFile" accept=".csv,.txt" />
+                <flux:error name="csvFile" />
+            </flux:field>
+
+            <div class="flex justify-end gap-3">
+                <flux:modal.close>
+                    <flux:button variant="ghost">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button variant="primary" wire:click="importCsv" icon="arrow-up-tray">
+                    Import
+                </flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- ── Question List ── --}}
     <div class="space-y-3">
         @forelse ($this->questions as $q)
             <div class="bento-flat flex items-start justify-between gap-4" wire:key="question-{{ $q->id }}">
@@ -467,10 +653,9 @@ new #[Title('Manage Questions')] class extends Component {
                     @if ($q->options)
                         <div class="flex flex-wrap gap-1 mt-1">
                             @foreach ($q->options as $opt)
-                                <flux:badge
-                                    size="sm"
-                                    :color="$opt === $q->correct_answer ? 'green' : 'zinc'"
-                                >{{ $opt }}</flux:badge>
+                                <flux:badge size="sm" :color="$opt === $q->correct_answer ? 'green' : 'zinc'">
+                                    {{ $opt }}
+                                </flux:badge>
                             @endforeach
                         </div>
                     @endif

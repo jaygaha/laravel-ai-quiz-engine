@@ -1,6 +1,6 @@
 ---
 name: tailwindcss-development
-description: "Styles applications using Tailwind CSS v4 utilities. Activates when adding styles, restyling components, working with gradients, spacing, layout, flex, grid, responsive design, colors, typography, or borders; or when the user mentions CSS, styling, classes, Tailwind, restyle, hero section, cards, buttons, or any visual/UI changes."
+description: "Styles applications using Tailwind CSS v4 utilities. Activates when adding styles, restyling components, working with gradients, spacing, layout, flex, grid, responsive design, dark mode, colors, typography, or borders; or when the user mentions CSS, styling, classes, Tailwind, restyle, hero section, cards, buttons, or any visual/UI changes."
 license: MIT
 metadata:
   author: laravel
@@ -14,6 +14,7 @@ Activate this skill when:
 
 - Adding styles to components or pages
 - Working with responsive design
+- Implementing dark mode
 - Extracting repeated patterns into components
 - Debugging spacing or layout issues
 
@@ -85,15 +86,16 @@ Use `gap` utilities instead of margins for spacing between siblings:
 </div>
 ```
 
-## Light-Mode Only
+## Dark Mode
 
-This project uses a **light-mode-only** design system. Do **not** add `dark:` variants to any class. The theme is enforced via `@theme` in `app.css` and the `@fluxAppearance` directive has been intentionally removed.
+If existing pages and components support dark mode, new pages and components must support it the same way, typically using the `dark:` variant:
 
-The design system uses:
-- Off-white background `#F8F9FA`
-- Teal primary `#0D9488` (`--color-accent` override)
-- Charcoal text `#1F2937`
-- Bento component classes: `.bento-card`, `.bento-flat`, `.bento-teal`
+<!-- Dark Mode -->
+```html
+<div class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+    Content adapts to color scheme
+</div>
+```
 
 ## Common Patterns
 
@@ -124,4 +126,4 @@ The design system uses:
 - Using `@tailwind` directives instead of `@import "tailwindcss"`
 - Trying to use `tailwind.config.js` instead of CSS `@theme` directive
 - Using margins for spacing between siblings instead of gap utilities
-- Adding `dark:` variants — this project is light-mode only, never add dark mode classes
+- Forgetting to add dark mode variants when the project uses dark mode

@@ -36,6 +36,14 @@
                         >
                             My Exams
                         </flux:sidebar.item>
+                        <flux:sidebar.item
+                            icon="rectangle-stack"
+                            :href="route('teacher.questions.index')"
+                            :current="request()->routeIs('teacher.questions.*')"
+                            wire:navigate
+                        >
+                            Question Bank
+                        </flux:sidebar.item>
                     @else
                         <div style="padding:0 0.5rem 0.375rem; font-size:0.6875rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:#9CA3AF;">
                             Learning
