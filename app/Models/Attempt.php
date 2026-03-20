@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\AttemptFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,6 +36,12 @@ class Attempt extends Model
     public function isCompleted(): bool
     {
         return $this->completed_at !== null;
+    }
+
+    /** @param Builder<self> $query */
+    public function scopeCompleted(Builder $query): void
+    {
+        $query->whereNotNull('completed_at');
     }
 
     /** @return BelongsTo<Exam, $this> */

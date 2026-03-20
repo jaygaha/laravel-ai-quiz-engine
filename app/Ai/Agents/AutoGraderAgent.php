@@ -5,15 +5,12 @@ namespace App\Ai\Agents;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Attributes\MaxTokens;
 use Laravel\Ai\Attributes\Model;
-use Laravel\Ai\Attributes\Provider;
 use Laravel\Ai\Attributes\Temperature;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
-use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Promptable;
 use Stringable;
 
-#[Provider(Lab::Anthropic)]
 #[Model('claude-haiku-4-5-20251001')]
 #[MaxTokens(512)]
 #[Temperature(0.1)]

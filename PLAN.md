@@ -1,6 +1,6 @@
 # QuizForge — Phased Development Plan
 
-A production-ready SaaS exam engine built on Laravel 12, Livewire 4, and the Laravel AI SDK. The plan is split into seven phases — each independently shippable and tested. Phases 0–3 are complete. Phases 4–6 deliver the real-time features, advanced AI, and production hardening that elevate the project from a working AI app to a differentiated product.
+A production-ready SaaS exam engine built on Laravel 12, Livewire 4, and the Laravel AI SDK. The plan is split into seven phases — each independently shippable and tested. Phases 0–3 are complete. Phase 4 is in progress on branch `feat/phase-4-frontend-realtime`. Phases 5–6 deliver the advanced AI and production hardening that elevate the project from a working AI app to a differentiated product.
 
 **Legend:** ✅ Complete · 🔜 Next · 📋 Planned · ⏸ Deferred
 
@@ -257,40 +257,218 @@ QuestionGeneratorAgent::assertPrompted(fn ($p) => $p->contains('PHP'));
 
 ---
 
-## Phase 4 — Frontend Polish + Real-time Features 🔜 Next
+## Phase 4 — Frontend Polish + Real-time Features ✅ Complete
 
-Streaming UI, broadcasting, PDF export, and the full Livewire reactivity upgrade.
+Streaming UI, broadcasting, PDF export, exam timer enforcement, and the full Livewire reactivity upgrade.
 
-### Tasks
+### Prerequisites
+```bash
+composer require laravel/reverb barryvdh/laravel-dompdf
+php artisan reverb:install
+php artisan vendor:publish --provider="Barryvdh\DomPDF\ServiceProvider"
+```
 
-**Streaming question generation UI (Teacher)**
-- [ ] Livewire component streams AI-generated questions token-by-token into the question list
-- [ ] Show per-question "generating…" skeleton cards during stream
-- [ ] Allow teacher to edit/discard generated questions before saving
-- [ ] Generation history (last 5 AI batches per exam, re-usable)
+Add to `.env`:
+```env
+REVERB_APP_ID=
+REVERB_APP_KEY=
+REVERB_APP_SECRET=
+REVERB_HOST=localhost
+REVERB_PORT=8080
+REVERB_SCHEME=http
 
-**Real-time student features (requires Laravel Reverb)**
-- [ ] `composer require laravel/reverb`
-- [ ] Countdown timer driven by server-side `started_at` + `time_limit` (prevents client-side manipulation)
-- [ ] `AttemptProgressEvent` broadcast: teacher sees live submission count during active exam window
-- [ ] Real-time class leaderboard (opt-in, teacher-configurable per exam)
+BROADCAST_CONNECTION=reverb
+```
 
-**Results PDF export**
-- [ ] `composer require barryvdh/laravel-dompdf`
-- [ ] Teacher: export full exam results table (all students, all scores)
-- [ ] Student: export own result card (score, per-question breakdown, AI explanations)
-- [ ] Queued PDF generation → email delivery for large exports
+---
 
-**UI enhancements**
-- [ ] Question bank view — teacher sees all their past questions, reusable across exams
-- [ ] Bulk question import from CSV (header: `question,type,options,correct_answer`)
-- [ ] Exam preview mode for teachers (read-only student view before publishing)
-- [ ] "Review Later" per-question flag fully wired (currently UI-only)
+### 1 — Exam Timer (Server-enforced Countdown) ✅ Complete
 
-**Tests**
-- [ ] Broadcasting tests with `Event::fake()`
-- [ ] PDF generation tests (assert file exists, correct content)
-- [ ] CSV import tests with valid and malformed files
+**Goal:** Prevent client-side manipulation of time limits. The countdown is derived entirely from `attempt.started_at + exam.time_limit`. Auto-submits when the deadline passes.
+
+- [x] Add `timeRemaining` computed property to `⚡take-exam`: `$exam->time_limit * 60 - now()->diffInSeconds($attempt->started_at)`
+- [x] Add `checkTimer()` Livewire action that calls `submitExam()` when `timeRemaining <= 0`
+- [x] Wire Alpine.js `setInterval` (every second) to decrement a local `seconds` counter initialised from PHP-rendered `$this->timeRemaining`
+- [x] When Alpine counter hits zero, call `$wire.checkTimer()` — server validates real elapsed time
+- [x] Show warning callout at ≤ 5 minutes and ≤ 1 minute remaining
+- [x] Flash "Time's up — your exam has been automatically submitted." on auto-submit
+- [x] Guard `submitExam()` with idempotency check (`isCompleted()`) and skip validation on auto-submit
+- [x] Hide timer UI entirely when `$exam->time_limit` is null (untimed exams)
+
+**Tests** (`tests/Feature/ExamTimerTest.php`) — 6 tests
+- [x] `timeRemaining` returns zero when exam has no time limit
+- [x] `timeRemaining` returns correct seconds on mount
+- [x] `checkTimer()` does nothing when time has not expired
+- [x] `checkTimer()` auto-submits and marks attempt completed when time expired
+- [x] Auto-submit produces a valid score and `completed_at` timestamp
+- [x] `submitExam()` is idempotent — double submit redirects without re-grading
+
+---
+
+### 2 — "Review Later" Flag ✅ Complete
+
+**Goal:** Students can flag individual questions mid-exam for a second pass. Flags stored server-side in `attempt.answers` JSON so they survive page refresh.
+
+**Data shape** — `answers` JSON now uses canonical nested shape:
+```json
+{
+  "42": { "value": "Paris", "flagged": true },
+  "43": { "value": "London", "flagged": false }
+}
+```
+- [x] No migration needed — flag lives inside the existing `answers` JSON column
+- [x] `normalizeAnswers()` in `mount()` upgrades all three legacy shapes (missing, plain string, old AI-graded array) to `{ value, flagged }`
+- [x] `wire:model` changed to `answers.{id}.value`; `submitExam()` reads `$answerData['value']` for grading and preserves `flagged` through AI-grading result
+- [x] `toggleFlag(int $questionId)` — flips `answers[$id]['flagged']` and immediately persists to DB (doubles as auto-save)
+- [x] Bookmark icon button on every question card; teal filled when flagged, outline when not
+- [x] "All Questions" / "Review Later" filter tabs; `filteredQuestions` computed property; empty state when no flags set
+- [x] `flaggedCount` computed property drives the badge count on the tab
+- [x] `⚡exam-results.blade.php`: bookmark SVG badge on flagged questions; `correctCount()` handles all three answer shapes
+- [x] Flagged cards in take-exam get a subtle teal tint border
+
+**Tests** (`tests/Feature/ReviewLaterTest.php`) — 9 tests
+- [x] `toggleFlag()` persists flagged state to database
+- [x] Toggling twice unflags the question
+- [x] Flagged questions survive a page reload
+- [x] `flaggedCount` reflects number of flagged questions
+- [x] `filteredQuestions` returns only flagged when filter = 'flagged'
+- [x] `submitExam()` grades `answers[$id]['value']` correctly with new shape
+- [x] `submitExam()` preserves flag state in saved answers
+- [x] Results page shows bookmark badge on flagged questions
+- [x] Results `correctCount()` handles nested answer shape
+
+---
+
+### 3 — Streaming Question Generation UI ✅ Complete
+
+**Goal:** Replace the static "pending cards appear all at once" pattern with live token-by-token streaming so the teacher sees questions materialise in real time.
+
+- [x] Add `streamGenerateWithAi()` Livewire action alongside existing `generateWithAi()`; uses `QuestionGeneratorAgent->stream()` + `wire:stream="ai-stream"` target
+- [x] While streaming, accumulate raw text into `$this->aiStreamBuffer`; parse complete JSON objects as they arrive using a lightweight streaming JSON extractor (handles both `{"questions":[...]}` structured output and bare top-level object formats)
+- [x] Each time a complete question object is parsed, append it to `pendingAiQuestions` (Livewire re-renders incrementally)
+- [x] Show a skeleton card (`animate-pulse`) while the next question is streaming; replace with the real card once parsed
+- [x] Keep existing sync `generateWithAi()` path for the queued (>5) route — streaming only applies to the ≤5 path
+- [x] AI generation history: store last 5 batches per exam in `session()` (keyed by `exam_id`); "Re-use" button re-populates `pendingAiQuestions` from a previous session entry
+- [x] `x-transition` enter animations on question cards as they arrive
+
+**Tests** (`tests/Feature/Ai/QuestionGeneratorStreamTest.php`)
+- [x] `streamGenerateWithAi()` populates `pendingAiQuestions` from faked streaming response
+- [x] `streamGenerateWithAi()` parses multiple questions from a single stream
+- [x] `aiStreaming` resets to `false` after completion
+- [x] Generation history stored in session after successful generation
+- [x] `loadFromHistory()` restores `pendingAiQuestions` from session
+- [x] Session history is capped at 5 entries
+- [x] `aiError` is cleared on a successful generation
+
+---
+
+### 4 — Laravel Reverb Broadcasting ✅ Complete
+
+**Goal:** Teacher sees a live submission counter tick up as students complete the exam. No polling — pure WebSocket event.
+
+- [x] `laravel/reverb` installed; `laravel-echo` + `pusher-js` added via npm; Echo bootstrapped in `resources/js/app.js`
+- [x] `AttemptSubmittedEvent` implements `ShouldBroadcast`; broadcasts on public channel `exam.{examId}`; payload: `{ student_count, latest_student_name }`
+- [x] Event dispatched in `submitExam()` guarded by `config('broadcasting.default') === 'reverb'` — safe fallback when Reverb is not configured
+- [x] Teacher `⚡index` page: Alpine Echo listener per exam row; dispatches Livewire `exam-attempt-submitted` event; `handleAttemptSubmitted()` updates `$liveSubmissions[examId]`; shows "● live" animated pill next to count
+- [x] `php artisan reverb:start` added as fifth process to `composer run dev`
+- [x] `leaderboard_enabled` boolean column migration for `exams` table
+- [x] Teacher toggle (Flux switch) in `⚡edit` for live leaderboard
+- [x] Student `⚡leaderboard` page (route `student/exams/{exam}/leaderboard`): top-10 by score, tie-break by `completed_at`; subscribes via Echo; refreshes on each event
+- [x] "You are #N" rank card shown to the authenticated student if they have a completed attempt
+- [x] "View Leaderboard" button on `⚡exam-results` page (only rendered when `leaderboard_enabled`)
+- [x] Reverb env vars documented in `.env.example`
+
+**Tests** (`tests/Feature/BroadcastingTest.php`)
+- [x] `AttemptSubmittedEvent` is dispatched when `submitExam()` completes (with `reverb` driver)
+- [x] Event payload contains correct `student_count` (pre-existing + new)
+- [x] Event is NOT dispatched when `BROADCAST_CONNECTION` is not `reverb`
+- [x] Leaderboard page shows attempts ordered by score descending
+- [x] Leaderboard 404 when `leaderboard_enabled = false`
+- [x] `myRank` computed property returns correct position
+- [x] Leaderboard 404 for unpublished exam
+
+---
+
+### 5 — Results PDF Export ✅ Complete
+
+**Goal:** Students download their own result card; teachers export a full class results table.
+
+- [x] `barryvdh/laravel-dompdf` installed
+- [x] `resources/views/pdf/student-result.blade.php` — score card, per-question breakdown, AI explanations, flagged badges; inline CSS only (DejaVu Sans, print-safe)
+- [x] `resources/views/pdf/exam-results.blade.php` — summary stats + full student table; A4 landscape
+- [x] `ExportStudentResultJob` — queued; generates PDF via `Pdf::loadView()`, stores in `storage/local/exports/`, emails signed download URL (24 h expiry)
+- [x] `ExportExamResultsJob` — same pattern for teacher; emails teacher
+- [x] `ExportReadyMail` mailable with `resources/views/emails/export-ready.blade.php` (Laravel mail component template)
+- [x] `PdfDownloadController` — validates signed URL (via `signed` middleware), streams PDF, deletes file after send
+- [x] Download route `GET /exports/download` with `->middleware('signed')` named `exports.download`
+- [x] "Download Result (PDF)" button on `⚡exam-results.blade.php` → dispatches `ExportStudentResultJob`
+- [x] New teacher page `⚡results.blade.php` (`teacher/exams/{exam}/results`) with stats (avg score, pass rate) + results table + "Export Results (PDF)" button → dispatches `ExportExamResultsJob`
+- [x] Chart-bar icon button added to teacher index per exam row → links to results page
+- [x] Flash callout "Your PDF is being generated — you'll receive an email shortly."
+
+**Tests** (`tests/Feature/PdfExportTest.php`)
+- [x] `ExportStudentResultJob::handle()` creates a PDF file in storage
+- [x] Generated PDF file is not empty
+- [x] Job sends email with signed download URL to student
+- [x] Signed download URL valid within 24 h returns 200
+- [x] Expired signed URL returns 403
+- [x] `ExportExamResultsJob` creates PDF and emails teacher
+- [x] Student results page dispatches `ExportStudentResultJob` via queue
+- [x] Teacher results page dispatches `ExportExamResultsJob` via queue
+- [x] Teacher results page computes correct `averageScore` and `passRate`
+
+---
+
+### 6 — UI Enhancements ✅ Complete
+
+**Question Bank**
+- [x] New teacher page `⚡question-bank` (route: `teacher/questions`); sidebar link added
+- [x] Lists all questions across all teacher's exams; columns: question text, type badge, exam name, difficulty
+- [x] Filter by exam (dropdown) and question type (select)
+- [x] Search with `wire:model.live.debounce.300ms`
+- [x] "Add to exam" action — modal with exam selector; creates a copy of the question in the target exam
+- [x] Pagination (15 per page)
+
+**Bulk CSV Import**
+- [x] "Import CSV" button in `⚡questions`; opens `flux:modal`
+- [x] File upload via `#[Validate('file|mimes:csv,txt|max:512')]` Livewire property
+- [x] Expected CSV format: `question,type,options,correct_answer`
+- [x] `ImportQuestionsFromCsvJob` — queued; parses CSV row by row, skips malformed rows
+- [x] Flash status after upload dispatches job
+
+**Exam Preview Mode**
+- [x] `#[Url(as: 'preview')]` property on `⚡take-exam`; teacher authenticated, bypasses `isPublished()` check
+- [x] "Preview Mode" callout at the top with "End Preview" button
+- [x] `submitExam()` is blocked in preview mode; submit button replaced with warning callout
+- [x] "Preview" button in `⚡edit` and `⚡questions`
+
+**Tests** (`tests/Feature/UiEnhancementsTest.php`)
+- [x] Question bank lists questions from all teacher exams
+- [x] Question bank hides other teacher's questions
+- [x] "Add to exam" duplicates the question into the target exam
+- [x] Add-to-exam requires a target exam selection
+- [x] CSV import dispatches `ImportQuestionsFromCsvJob`
+- [x] `ImportQuestionsFromCsvJob` imports valid rows and skips malformed ones
+- [x] `ImportQuestionsFromCsvJob` skips rows with fewer columns than header
+- [x] Preview mode accessible to teacher on unpublished exam
+- [x] Non-owner gets 403 on preview
+- [x] `submitExam()` is blocked in preview mode
+- [x] Draft exam returns 404 without preview param
+
+---
+
+### Summary Table
+
+| Sub-feature | New files | Changed files |
+|---|---|---|
+| Timer | `ExamTimerTest` | `⚡take-exam` |
+| Review Later | `ReviewLaterTest` | `⚡take-exam`, `⚡exam-results` |
+| Streaming gen UI | `QuestionGeneratorStreamTest` | `⚡questions` |
+| Reverb broadcast | `AttemptSubmittedEvent`, `⚡leaderboard`, migration, `BroadcastingTest` | `⚡take-exam`, `⚡index` |
+| PDF export | `student-result.blade`, `exam-results.blade`, 2 jobs, `PdfExportTest` | `⚡exam-results`, teacher results view |
+| Question bank | `⚡question-bank`, `UiEnhancementsTest` | sidebar nav |
+| CSV import | `ImportQuestionsFromCsvJob` | `⚡questions` |
+| Exam preview | — | `⚡take-exam`, `⚡edit`, `⚡questions` |
 
 ---
 

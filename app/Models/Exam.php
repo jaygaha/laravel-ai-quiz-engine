@@ -20,6 +20,7 @@ class Exam extends Model
         'description',
         'time_limit',
         'published_at',
+        'leaderboard_enabled',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class Exam extends Model
         return [
             'published_at' => 'datetime',
             'time_limit' => 'integer',
+            'leaderboard_enabled' => 'boolean',
         ];
     }
 

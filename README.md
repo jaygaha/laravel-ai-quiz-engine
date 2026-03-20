@@ -35,7 +35,7 @@ A full-stack SaaS-style application where teachers create and publish exams, stu
 
 ## Overview
 
-QuizForge is a **phased learning project** that demonstrates how to build a production-ready SaaS application on the modern Laravel stack. The core exam engine (multi-role auth, exam CRUD, student exam-taking, auto-scoring) is fully implemented and the **Laravel AI SDK** integration (Phase 3) is complete — covering structured-output question generation, AI auto-grading for short answers, and real-time hint streaming. Future phases add real-time broadcasting, RAG via `pgvector`, and production hardening.
+QuizForge is a **phased learning project** that demonstrates how to build a production-ready SaaS application on the modern Laravel stack. The core exam engine (multi-role auth, exam CRUD, student exam-taking, auto-scoring) is fully implemented with **Laravel AI SDK** integration (structured-output question generation, AI auto-grading, hint streaming) and **real-time features** (WebSocket broadcasting via Laravel Reverb, live leaderboard, PDF export, server-enforced exam timer). Future phases add RAG via `pgvector`, personalised recommendations, and production hardening.
 
 The project is also a reference implementation for:
 
@@ -54,6 +54,8 @@ The project is also a reference implementation for:
 | CSS | Tailwind CSS 4 + Vite 7 |
 | Font | Lexend (Google Fonts) |
 | Authentication | Laravel Fortify (2FA, email verification) |
+| Real-time | Laravel Reverb (WebSocket) + Laravel Echo |
+| PDF | barryvdh/laravel-dompdf |
 | Database | PostgreSQL 17+ (`pgvector` ready) |
 | Queue / Cache | Database driver (Redis-swappable) |
 | Testing | Pest 4 + pest-plugin-laravel |
@@ -79,27 +81,37 @@ The project is also a reference implementation for:
 - Draft / Published workflow — students only see published exams
 - Manage questions per exam: Multiple Choice, True / False, Short Answer
 - Drag-free manual ordering of questions
-- **AI question generation** — "Generate with AI" panel with topic, type, count (1–10), and difficulty inputs; review and confirm/discard before saving; batches > 5 are queued
+- **AI question generation** — "Generate with AI" panel with topic, type, count (1–10), and difficulty inputs; review and confirm/discard before saving; batches > 5 are queued; generation history (last 5 per exam)
+- **Question bank** — cross-exam question browser with search, exam/type filters, and "Add to exam" copy action
+- **Bulk CSV import** — upload a CSV file to import questions in batch; malformed rows are skipped
+- **Exam preview** — preview unpublished exams as a student would see them (submission blocked)
+- **Results dashboard** — per-exam stats (average score, pass rate), student results table, "Export Results (PDF)" button
+- **Live submission counter** — real-time WebSocket updates as students complete the exam (via Laravel Reverb)
 
 **Student**
 - Dashboard listing all published exams available to take
-- Exam-taking interface with per-question navigation and optional countdown timer
+- Exam-taking interface with per-question navigation and **server-enforced countdown timer**
+- **"Review Later" flags** — bookmark questions mid-exam for a second pass; filter tabs (All / Flagged); flags persist server-side
 - Automatic answer scoring on submission (exact-match for MC/TF; **AI-graded for Short Answer**)
 - **Real-time hints** — "Get a Hint" button streams a Socratic hint for short-answer questions via `wire:stream`
 - Results page with per-question feedback, AI score badge, explanation, and improvement suggestion
+- **PDF result card** — download a personal result PDF via signed email link (queued generation, 24h expiry)
+- **Live leaderboard** — top-10 scores with medals, "You are #N" rank card, real-time updates via Echo
 
 **Platform**
 - Light-mode-only Bento-grid UI (Laravel.com aesthetic)
 - Teal primary palette with Coral accent for achievement elements
 - Fully responsive — sidebar collapses to mobile drawer
+- Custom error pages (401, 403, 404, 419, 429, 500, 503) matching the QuizForge theme
 - Settings: profile, security (2FA + recovery codes)
+- Docker services: web, PostgreSQL, Reverb (WebSocket), queue worker, Mailpit (local email)
 
 ### Planned
 
-- Streaming token-by-token question generation in the teacher UI (Phase 4)
-- Real-time student score broadcasts via Laravel Reverb (Phase 4)
 - Semantic similarity search on question bank (`pgvector` + embeddings) (Phase 5)
 - Personalised question recommendations based on past attempt embeddings (Phase 5)
+- Per-user AI rate limiting and token budget tracking (Phase 5)
+- Production hardening — Redis queue/cache, caching, security, observability (Phase 6)
 
 ---
 
@@ -119,7 +131,7 @@ The project is also a reference implementation for:
 
 ## Quick Start (Laravel Sail)
 
-Sail runs the full stack (PHP 8.5 + PostgreSQL 18) in Docker with zero local database setup.
+Sail runs the full stack (PHP 8.5 + PostgreSQL 18 + Reverb WebSocket + queue worker + Mailpit) in Docker with zero local database setup.
 
 **1. Clone and enter the project**
 
@@ -178,11 +190,17 @@ Edit `.env` and set any values you want to override (the defaults work out-of-th
 http://localhost
 ```
 
+**9. Access Mailpit (local email testing)**
+
+```
+http://localhost:8025
+```
+
 > **Tip — development mode with hot reload:**
 > ```bash
 > composer run dev
 > ```
-> This starts `php artisan serve`, `queue:listen`, `pail` (log tail), and `vite` concurrently.
+> This starts `php artisan serve`, `queue:listen`, `reverb:start`, `pail` (log tail), and `vite` concurrently.
 
 ---
 
@@ -220,6 +238,24 @@ Visit `http://localhost:8000`.
 
 ---
 
+## CSV Import Format
+
+The bulk question import expects a CSV file with the following columns:
+
+```csv
+question,type,options,correct_answer
+"What is the capital of France?",multiple_choice,"Paris|London|Berlin|Rome",Paris
+"PHP is a compiled language",true_false,,false
+"Explain polymorphism",short_answer,,"Objects of different types responding to the same interface"
+```
+
+- **type** — `multiple_choice`, `true_false`, or `short_answer`
+- **options** — pipe-separated (`|`) for multiple choice; leave empty for other types
+- **correct_answer** — required for all types
+- Malformed or incomplete rows are silently skipped
+
+---
+
 ## Environment Reference
 
 | Variable | Default | Description |
@@ -228,6 +264,7 @@ Visit `http://localhost:8000`.
 | `APP_ENV` | `local` | `local`, `staging`, or `production` |
 | `APP_DEBUG` | `true` | Set to `false` in production |
 | `APP_URL` | `http://localhost` | Full public URL |
+| `APP_PORT` | `8040` | Host port for the web container |
 | `DB_CONNECTION` | `pgsql` | Database driver |
 | `DB_HOST` | `pgsql` | `127.0.0.1` when not using Sail |
 | `DB_DATABASE` | `ai_quiz` | Database name |
@@ -236,8 +273,22 @@ Visit `http://localhost:8000`.
 | `SESSION_DRIVER` | `database` | Session backend |
 | `QUEUE_CONNECTION` | `database` | Queue backend (`redis` recommended for production) |
 | `CACHE_STORE` | `database` | Cache backend |
-| `MAIL_MAILER` | `log` | `log` locally, `smtp`/`ses` in production |
-| `BROADCAST_CONNECTION` | `log` | Set to `reverb` when real-time features land |
+| `MAIL_MAILER` | `log` | `log` locally; use `smtp` with Mailpit in Sail |
+| `BROADCAST_CONNECTION` | `reverb` | WebSocket broadcasting via Laravel Reverb |
+
+> **Reverb WebSocket variables (Phase 4):**
+> ```env
+> REVERB_APP_ID=                   # Generated by `php artisan reverb:install`
+> REVERB_APP_KEY=                  # Generated by `php artisan reverb:install`
+> REVERB_APP_SECRET=               # Generated by `php artisan reverb:install`
+> REVERB_HOST=localhost            # Use 'reverb' inside Docker queue container
+> REVERB_PORT=8080
+> REVERB_SCHEME=http
+> VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+> VITE_REVERB_HOST="${REVERB_HOST}"
+> VITE_REVERB_PORT="${REVERB_PORT}"
+> VITE_REVERB_SCHEME="${REVERB_SCHEME}"
+> ```
 
 > **AI provider variables (Phase 3 — provider priority: Anthropic → Gemini → OpenAI):**
 > ```env
@@ -272,7 +323,7 @@ The test suite uses **Pest 4** against a live PostgreSQL instance (same engine a
 
 > Without Sail, replace `./vendor/bin/sail` with direct commands and ensure `DB_HOST=127.0.0.1` is set.
 
-**Test coverage areas:**
+**Test coverage areas (158 tests, 285 assertions):**
 
 | Suite | Files | What's tested |
 |---|---|---|
@@ -280,7 +331,13 @@ The test suite uses **Pest 4** against a live PostgreSQL instance (same engine a
 | Core | 3 files | Dashboard routing, role middleware, exam CRUD |
 | Student | 1 file | Exam taking, answer submission, score calculation |
 | Settings | 2 files | Profile update, security settings |
-| AI | 3 files | Question generation (sync + queued), auto-grading, hint streaming |
+| AI | 4 files | Question generation (sync + queued), auto-grading, hint streaming, AI workflow |
+| Timer | 1 file | Server-enforced countdown, auto-submit, idempotency |
+| Review Later | 1 file | Flag toggle, persistence, filtering, grading with flags |
+| Broadcasting | 1 file | Event dispatch, payload, channel, leaderboard |
+| PDF Export | 2 files | Job execution, email delivery, signed URLs, download controller |
+| UI Enhancements | 1 file | Question bank, CSV import, exam preview mode |
+| Jobs | 1 file | ProcessGeneratedQuestionsJob validation, ordering, type handling |
 
 ---
 
@@ -311,26 +368,35 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 .
 ├── app/
 │   ├── Ai/
-│   │   └── Agents/
-│   │       ├── AutoGraderAgent.php        # Structured: grades ShortAnswer (score, explanation, suggestion)
-│   │       ├── HintAgent.php              # Streaming: Socratic hint for short-answer questions
-│   │       └── QuestionGeneratorAgent.php # Structured: generates questions by topic/type/difficulty
+│   │   ├── Agents/
+│   │   │   ├── AutoGraderAgent.php        # Structured: grades ShortAnswer (score, explanation, suggestion)
+│   │   │   ├── HintAgent.php              # Streaming: Socratic hint for short-answer questions
+│   │   │   └── QuestionGeneratorAgent.php # Structured: generates questions by topic/type/difficulty
+│   │   └── ResolvedProviders.php          # Dynamic AI provider resolution with failover
 │   ├── Actions/Fortify/       # User creation and password reset logic
 │   ├── Concerns/              # Shared validation rule traits
 │   ├── Enums/
 │   │   ├── QuestionType.php   # MultipleChoice | TrueFalse | ShortAnswer
 │   │   └── UserRole.php       # Teacher | Student
+│   ├── Events/
+│   │   └── AttemptSubmittedEvent.php  # ShouldBroadcast — live submission counter via Reverb
 │   ├── Http/
-│   │   ├── Controllers/       # Minimal — UI is Livewire-first
+│   │   ├── Controllers/
+│   │   │   └── PdfDownloadController.php  # Signed URL PDF download + cleanup
 │   │   └── Middleware/
 │   │       └── EnsureUserRole.php
 │   ├── Jobs/
+│   │   ├── ExportExamResultsJob.php       # Queued: teacher class results PDF + email
+│   │   ├── ExportStudentResultJob.php     # Queued: student result card PDF + email
+│   │   ├── ImportQuestionsFromCsvJob.php  # Queued: bulk CSV question import
 │   │   └── ProcessGeneratedQuestionsJob.php  # Queued: persists AI-generated questions to DB
 │   ├── Livewire/Actions/
 │   │   └── Logout.php
+│   ├── Mail/
+│   │   └── ExportReadyMail.php  # PDF export download link email (markdown)
 │   ├── Models/
 │   │   ├── Attempt.php        # Student exam attempt + answers JSON + score
-│   │   ├── Exam.php           # Teacher's exam (draft/published)
+│   │   ├── Exam.php           # Teacher's exam (draft/published, leaderboard toggle)
 │   │   ├── Question.php       # Per-exam question (3 types)
 │   │   └── User.php           # Teacher or Student with 2FA
 │   └── Providers/
@@ -338,39 +404,53 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │       └── FortifyServiceProvider.php
 │
 ├── config/
-│   └── ai.php                 # Laravel AI SDK — default: anthropic; all 4 providers configured
+│   ├── ai.php                 # Laravel AI SDK — default: anthropic; all 4 providers configured
+│   ├── broadcasting.php       # Reverb WebSocket configuration
+│   └── reverb.php             # Reverb server settings
 │
 ├── database/
 │   ├── factories/             # Exam, Question, Attempt, User factories
-│   ├── migrations/            # 10 migrations — all schema-complete (incl. agent_conversations)
+│   ├── migrations/            # 11 migrations (incl. leaderboard_enabled, agent_conversations)
 │   └── seeders/
 │       ├── DatabaseSeeder.php
 │       └── ExamSeeder.php
 │
 ├── resources/
 │   ├── css/app.css            # Tailwind 4 + full Bento design system
-│   ├── js/app.js
+│   ├── js/app.js              # Echo + Reverb WebSocket bootstrap
 │   └── views/
 │       ├── components/        # Blade components (logo, auth-header, etc.)
+│       ├── emails/            # export-ready.blade.php (markdown mail)
+│       ├── errors/            # Custom 401, 403, 404, 419, 429, 500, 503 + shared layout
 │       ├── layouts/           # App (sidebar) + Auth (simple / card) layouts
 │       ├── pages/
 │       │   ├── auth/          # Login, register, password reset, 2FA
 │       │   ├── settings/      # Profile, security (⚡ Livewire SFCs)
-│       │   ├── student/       # Dashboard, take-exam (AI hints), exam-results (AI scores) (⚡)
-│       │   └── teacher/exams/ # Index, create, edit, questions (AI generation panel) (⚡)
-│       └── partials/          # Head, settings-heading
+│       │   ├── student/       # Dashboard, take-exam, exam-results, leaderboard (⚡)
+│       │   └── teacher/       # Exam index/create/edit/questions/results, question-bank (⚡)
+│       ├── partials/          # Head, settings-heading
+│       └── pdf/               # student-result.blade.php, exam-results.blade.php (DomPDF)
 │
 ├── routes/
-│   ├── web.php                # Public, teacher (role-gated), student (role-gated)
+│   ├── web.php                # Public, teacher (role-gated), student (role-gated), PDF download
+│   ├── channels.php           # Broadcast channel authorization
 │   └── settings.php           # Auth-only settings routes
 │
 ├── tests/
 │   └── Feature/
-│       ├── Ai/                # QuestionGeneratorTest, AutoGraderTest, HintTest
+│       ├── Ai/                # QuestionGenerator, AutoGrader, Hint, StreamGenerator tests
 │       ├── Auth/              # 6 auth test files
 │       ├── Settings/          # ProfileUpdateTest, SecurityTest
+│       ├── AiQuestionsWorkflowTest.php    # Discard, history save/load
+│       ├── BroadcastingTest.php           # Events, leaderboard, channel/payload
 │       ├── ExamCrudTest.php
+│       ├── ExamTimerTest.php              # Server timer, auto-submit, idempotency
+│       ├── PdfDownloadControllerTest.php  # Signed URL, 404, cleanup
+│       ├── PdfExportTest.php              # Jobs, email, mail rendering
+│       ├── ProcessGeneratedQuestionsJobTest.php
+│       ├── ReviewLaterTest.php            # Flag toggle, persistence, filtering
 │       ├── StudentExamTest.php
+│       ├── UiEnhancementsTest.php         # Question bank, CSV import, preview
 │       └── ...
 │
 ├── .github/
@@ -379,7 +459,7 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │   │   └── cd.yml             # Deployment pipeline (commented out)
 │   └── dependabot.yml         # Automated dependency updates
 │
-├── compose.yaml               # Laravel Sail: PHP 8.5 + PostgreSQL 18
+├── compose.yaml               # Sail: PHP 8.5, PostgreSQL 18, Reverb, queue worker, Mailpit
 ├── phpunit.xml                # PHPUnit / Pest config with test env overrides
 ├── vite.config.js             # Vite 7 + Tailwind CSS 4 + laravel-vite-plugin
 └── PLAN.md                    # Phased development plan
@@ -395,9 +475,9 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 | 1 | Project setup, auth scaffolding, CI/CD | ✅ Complete |
 | 2 | Database models, migrations, factories, role system | ✅ Complete |
 | 3 | Laravel AI SDK — question generation, auto-grading, hint streaming | ✅ Complete |
-| 4 | Frontend polish, streaming UI, real-time broadcasting | 🔜 Next |
+| 4 | Frontend polish, real-time broadcasting, PDF export, timer, leaderboard | ✅ Complete |
 | 5 | Advanced AI — RAG, personalisation, pgvector, cost controls | 📋 Planned |
-| 6 | Production hardening — rate limiting, queues, deploy | 📋 Planned |
+| 6 | Production hardening — Redis, caching, security, deploy | 📋 Planned |
 
 See [`PLAN.md`](PLAN.md) for the detailed implementation plan with task breakdowns per phase.
 

@@ -104,6 +104,7 @@ Browser tests run in real browsers for full integration testing:
 - Interact with page: click, type, scroll, select, submit, drag-and-drop, touch gestures.
 - Test on multiple browsers (Chrome, Firefox, Safari) if requested.
 - Test on different devices/viewports (iPhone 14 Pro, tablets) if requested.
+- Switch color schemes (light/dark mode) when appropriate.
 - Take screenshots or pause tests for debugging.
 
 <!-- Pest Browser Test Example -->

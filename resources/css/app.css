@@ -372,19 +372,52 @@
 /* ── Flux typography — enforce design system text colors ── */
 /* flux.css uses [:where(&)] (zero specificity); an attribute selector wins  */
 [data-flux-heading] {
-    color: #1F2937;
+    color: #1F2937 !important;
 }
 
 [data-flux-subheading] {
-    color: #4B5563;
+    color: #4B5563 !important;
+}
+
+[data-flux-text] {
+    color: #4B5563 !important;
 }
 
 [data-flux-label] {
-    color: #1F2937;
+    color: #1F2937 !important;
 }
 
 [data-flux-description] {
-    color: #6B7280;
+    color: #6B7280 !important;
+}
+
+/* ── Flux table — force readable text ── */
+[data-flux-column] {
+    color: #1F2937 !important;
+}
+
+[data-flux-cell] {
+    color: #4B5563 !important;
+}
+
+/* ── Flux select button text ── */
+button[data-flux-select],
+button[data-flux-select] * {
+    color: #1F2937 !important;
+}
+
+/* ── Flux menu / dropdown items ── */
+[data-flux-menu-item] {
+    color: #1F2937 !important;
+}
+
+/* ── Flux sidebar items ── */
+[data-flux-sidebar-item] {
+    color: #4B5563 !important;
+}
+
+[data-flux-sidebar-item][data-current] {
+    color: #0D9488 !important;
 }
 
 /* ── Teal accent — override Flux's default zinc-800 ── */
