@@ -56,7 +56,7 @@ The project is also a reference implementation for:
 | Authentication | Laravel Fortify (2FA, email verification) |
 | Real-time | Laravel Reverb (WebSocket) + Laravel Echo |
 | PDF | barryvdh/laravel-dompdf |
-| Database | PostgreSQL 17+ (`pgvector` ready) |
+| Database | PostgreSQL 17+ with `pgvector` (semantic embeddings + similarity search) |
 | Queue / Cache | Database driver (Redis-swappable) |
 | Testing | Pest 4 + pest-plugin-laravel |
 | Code Style | Laravel Pint |
@@ -98,19 +98,30 @@ The project is also a reference implementation for:
 - **PDF result card** — download a personal result PDF via signed email link (queued generation, 24h expiry)
 - **Live leaderboard** — top-10 scores with medals, "You are #N" rank card, real-time updates via Echo
 
+**AI Intelligence Layer (RAG + pgvector)**
+- **Semantic embeddings** — questions and attempts are auto-embedded via queued jobs (`GenerateQuestionEmbeddingJob`, `GenerateAttemptEmbeddingJob`)
+- **Similarity search** — `QuestionSimilarityService` uses pgvector cosine distance (`whereVectorSimilarTo`) for semantic question retrieval
+- **RAG-enhanced grading** — `AutoGraderAgent` uses `SimilaritySearch` tool to find similar past questions before grading for consistency
+- **Personalised recommendations** — student results page shows "Recommended Practice" questions from other exams based on incorrect answers
+- **Struggled topics** — teacher results page shows questions with lowest correct-answer rates across all attempts
+- **Backfill command** — `php artisan questions:backfill-embeddings` generates embeddings for existing questions
+
+**AI Cost Controls**
+- Per-user rate limiting (configurable per-minute limit via `AI_RATE_LIMIT_PER_MINUTE`)
+- Token usage tracking — `ai_usages` table logs agent, model, tokens, and estimated cost per request
+- **AI Usage dashboard** — teacher view with daily spend (7 days), per-model breakdown, total cost
+- Daily budget hard stop — cache flag prevents further AI calls when `AI_DAILY_BUDGET` exceeded; graceful UI messages
+
 **Platform**
 - Light-mode-only Bento-grid UI (Laravel.com aesthetic)
 - Teal primary palette with Coral accent for achievement elements
 - Fully responsive — sidebar collapses to mobile drawer
 - Custom error pages (401, 403, 404, 419, 429, 500, 503) matching the QuizForge theme
 - Settings: profile, security (2FA + recovery codes)
-- Docker services: web, PostgreSQL, Reverb (WebSocket), queue worker, Mailpit (local email)
+- Docker services: web, PostgreSQL (pgvector), Reverb (WebSocket), queue worker, Mailpit (local email)
 
 ### Planned
 
-- Semantic similarity search on question bank (`pgvector` + embeddings) (Phase 5)
-- Personalised question recommendations based on past attempt embeddings (Phase 5)
-- Per-user AI rate limiting and token budget tracking (Phase 5)
 - Production hardening — Redis queue/cache, caching, security, observability (Phase 6)
 
 ---
@@ -300,6 +311,12 @@ question,type,options,correct_answer
 > OLLAMA_API_KEY=
 > ```
 
+> **AI rate limiting & cost controls (Phase 5):**
+> ```env
+> AI_RATE_LIMIT_PER_MINUTE=30     # Max AI requests per user per minute
+> AI_DAILY_BUDGET=5.00            # Daily cost cap per user (USD); AI calls blocked when exceeded
+> ```
+
 ---
 
 ## Running Tests
@@ -323,7 +340,7 @@ The test suite uses **Pest 4** against a live PostgreSQL instance (same engine a
 
 > Without Sail, replace `./vendor/bin/sail` with direct commands and ensure `DB_HOST=127.0.0.1` is set.
 
-**Test coverage areas (158 tests, 285 assertions):**
+**Test coverage areas (182 tests, 330+ assertions):**
 
 | Suite | Files | What's tested |
 |---|---|---|
@@ -338,6 +355,11 @@ The test suite uses **Pest 4** against a live PostgreSQL instance (same engine a
 | PDF Export | 2 files | Job execution, email delivery, signed URLs, download controller |
 | UI Enhancements | 1 file | Question bank, CSV import, exam preview mode |
 | Jobs | 1 file | ProcessGeneratedQuestionsJob validation, ordering, type handling |
+| pgvector | 1 file | Vector columns exist and are nullable |
+| Embeddings | 1 file | Job stores embedding, observer dispatches, backfill command |
+| Similarity | 1 file | Service results, exclusion, empty state, HasTools, RAG grading |
+| Recommendations | 1 file | Practice suggestions, cross-exam, same-exam exclusion, struggled topics |
+| AI Usage | 1 file | Listener logging, budget flag, usage page, data isolation |
 
 ---
 
@@ -385,20 +407,31 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │   │   │   └── PdfDownloadController.php  # Signed URL PDF download + cleanup
 │   │   └── Middleware/
 │   │       └── EnsureUserRole.php
+│   ├── Console/Commands/
+│   │   └── BackfillQuestionEmbeddingsCommand.php  # Backfill embeddings for existing questions
 │   ├── Jobs/
 │   │   ├── ExportExamResultsJob.php       # Queued: teacher class results PDF + email
 │   │   ├── ExportStudentResultJob.php     # Queued: student result card PDF + email
+│   │   ├── GenerateAttemptEmbeddingJob.php   # Queued: embed attempt answers via pgvector
+│   │   ├── GenerateQuestionEmbeddingJob.php  # Queued: embed question text via pgvector
 │   │   ├── ImportQuestionsFromCsvJob.php  # Queued: bulk CSV question import
 │   │   └── ProcessGeneratedQuestionsJob.php  # Queued: persists AI-generated questions to DB
+│   ├── Listeners/
+│   │   └── LogAiUsageListener.php         # Logs token usage from AgentPrompted/EmbeddingsGenerated events
 │   ├── Livewire/Actions/
 │   │   └── Logout.php
 │   ├── Mail/
 │   │   └── ExportReadyMail.php  # PDF export download link email (markdown)
 │   ├── Models/
-│   │   ├── Attempt.php        # Student exam attempt + answers JSON + score
+│   │   ├── AiUsage.php        # Per-request AI token usage and cost tracking
+│   │   ├── Attempt.php        # Student exam attempt + answers JSON + score + embedding
 │   │   ├── Exam.php           # Teacher's exam (draft/published, leaderboard toggle)
-│   │   ├── Question.php       # Per-exam question (3 types)
+│   │   ├── Question.php       # Per-exam question (3 types) + pgvector embedding
 │   │   └── User.php           # Teacher or Student with 2FA
+│   ├── Observers/
+│   │   └── QuestionObserver.php  # Auto-dispatches embedding job on question create/update
+│   ├── Services/
+│   │   └── QuestionSimilarityService.php  # Semantic search via pgvector cosine distance
 │   └── Providers/
 │       ├── AppServiceProvider.php
 │       └── FortifyServiceProvider.php
@@ -410,7 +443,7 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │
 ├── database/
 │   ├── factories/             # Exam, Question, Attempt, User factories
-│   ├── migrations/            # 11 migrations (incl. leaderboard_enabled, agent_conversations)
+│   ├── migrations/            # 15 migrations (incl. pgvector, embeddings, ai_usages)
 │   └── seeders/
 │       ├── DatabaseSeeder.php
 │       └── ExamSeeder.php
@@ -438,10 +471,11 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │
 ├── tests/
 │   └── Feature/
-│       ├── Ai/                # QuestionGenerator, AutoGrader, Hint, StreamGenerator tests
+│       ├── Ai/                # QuestionGenerator, AutoGrader, Hint, StreamGenerator, Embeddings, Similarity, Recommendations tests
 │       ├── Auth/              # 6 auth test files
 │       ├── Settings/          # ProfileUpdateTest, SecurityTest
 │       ├── AiQuestionsWorkflowTest.php    # Discard, history save/load
+│       ├── AiUsageTest.php              # Usage logging, budget flag, dashboard, data isolation
 │       ├── BroadcastingTest.php           # Events, leaderboard, channel/payload
 │       ├── ExamCrudTest.php
 │       ├── ExamTimerTest.php              # Server timer, auto-submit, idempotency
@@ -459,7 +493,7 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 │   │   └── cd.yml             # Deployment pipeline (commented out)
 │   └── dependabot.yml         # Automated dependency updates
 │
-├── compose.yaml               # Sail: PHP 8.5, PostgreSQL 18, Reverb, queue worker, Mailpit
+├── compose.yaml               # Sail: PHP 8.5, PostgreSQL 18 (pgvector), Reverb, queue worker, Mailpit
 ├── phpunit.xml                # PHPUnit / Pest config with test env overrides
 ├── vite.config.js             # Vite 7 + Tailwind CSS 4 + laravel-vite-plugin
 └── PLAN.md                    # Phased development plan
@@ -476,7 +510,7 @@ See `.github/workflows/ci.yml` and `.github/workflows/cd.yml` for full pipeline 
 | 2 | Database models, migrations, factories, role system | ✅ Complete |
 | 3 | Laravel AI SDK — question generation, auto-grading, hint streaming | ✅ Complete |
 | 4 | Frontend polish, real-time broadcasting, PDF export, timer, leaderboard | ✅ Complete |
-| 5 | Advanced AI — RAG, personalisation, pgvector, cost controls | 📋 Planned |
+| 5 | Advanced AI — RAG, personalisation, pgvector, cost controls | ✅ Complete |
 | 6 | Production hardening — Redis, caching, security, deploy | 📋 Planned |
 
 See [`PLAN.md`](PLAN.md) for the detailed implementation plan with task breakdowns per phase.

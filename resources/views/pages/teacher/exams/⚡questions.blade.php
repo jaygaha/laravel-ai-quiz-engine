@@ -7,6 +7,8 @@ use App\Jobs\ImportQuestionsFromCsvJob;
 use App\Jobs\ProcessGeneratedQuestionsJob;
 use App\Models\Exam;
 use App\Models\Question;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Validate;
@@ -135,11 +137,15 @@ new #[Title('Manage Questions')] class extends Component {
             'local',
         );
 
-        ImportQuestionsFromCsvJob::dispatch($this->exam->id, $path);
+        ImportQuestionsFromCsvJob::dispatchSync($this->exam->id, $path);
 
         $this->csvFile = null;
 
-        session()->flash('status', 'CSV uploaded — questions will be imported shortly.');
+        unset($this->questions);
+
+        $this->modal('csv-import')->close();
+
+        session()->flash('status', 'CSV imported successfully.');
     }
 
     /**
@@ -148,6 +154,18 @@ new #[Title('Manage Questions')] class extends Component {
      */
     public function generateWithAi(): void
     {
+        if (Cache::has('ai_budget_exceeded:'.auth()->id())) {
+            $this->aiError = 'Daily AI budget exceeded. Please try again tomorrow.';
+
+            return;
+        }
+
+        if (! RateLimiter::attempt('ai:'.auth()->id(), config('ai.rate_limit.per_minute', 30), fn () => true)) {
+            $this->aiError = 'Too many AI requests. Please wait a moment.';
+
+            return;
+        }
+
         $this->validateOnly('aiTopic');
         $this->validateOnly('aiCount');
         $this->validateOnly('aiDifficulty');
@@ -193,6 +211,18 @@ new #[Title('Manage Questions')] class extends Component {
      */
     public function streamGenerateWithAi(): void
     {
+        if (Cache::has('ai_budget_exceeded:'.auth()->id())) {
+            $this->aiError = 'Daily AI budget exceeded. Please try again tomorrow.';
+
+            return;
+        }
+
+        if (! RateLimiter::attempt('ai:'.auth()->id(), config('ai.rate_limit.per_minute', 30), fn () => true)) {
+            $this->aiError = 'Too many AI requests. Please wait a moment.';
+
+            return;
+        }
+
         $this->validateOnly('aiTopic');
         $this->validateOnly('aiCount');
         $this->validateOnly('aiDifficulty');
@@ -386,7 +416,10 @@ new #[Title('Manage Questions')] class extends Component {
 
     {{-- ── AI Generation Panel ── --}}
     @if ($showAiPanel)
-        <div class="bento-flat space-y-4">
+        <div
+            class="bento-flat space-y-4"
+            x-data="{ generating: $wire.$entangle('aiGenerating') }"
+        >
             <div class="flex items-center gap-2">
                 <flux:icon.sparkles class="text-teal-600 size-5" />
                 <flux:heading size="lg">Generate Questions with AI</flux:heading>
@@ -440,39 +473,38 @@ new #[Title('Manage Questions')] class extends Component {
                 {{-- Generate button --}}
                 <flux:button
                     variant="primary"
-                    icon="sparkles"
-                    x-on:click="$wire.streamGenerateWithAi()"
-                    :disabled="$aiGenerating"
+                    x-on:click="generating = true; $wire.streamGenerateWithAi()"
+                    x-bind:disabled="generating"
+                    :loading="false"
                 >
-                    @if ($aiGenerating)
-                        <flux:icon.sparkles class="animate-spin size-4" /> Generating…
-                    @else
+                    <span x-show="!generating" class="inline-flex items-center gap-1">
+                        <flux:icon.sparkles class="size-4" />
                         Generate
-                    @endif
+                    </span>
+                    <span x-show="generating" x-cloak class="inline-flex items-center gap-1">
+                        <svg class="animate-spin size-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                        Generating…
+                    </span>
                 </flux:button>
 
-                @if ($aiGenerating)
-                    <flux:text size="sm" class="text-charcoal-400 animate-pulse">
-                        Generating questions… please wait.
-                    </flux:text>
-                @endif
+                <flux:text x-show="generating" x-cloak size="sm" class="text-charcoal-400 animate-pulse">
+                    Generating questions… please wait.
+                </flux:text>
             </div>
 
             {{-- Skeleton cards shown while generating --}}
-            @if ($aiGenerating)
-                <div class="space-y-3">
-                    @for ($s = 0; $s < min($aiCount, 3); $s++)
-                        <div class="bento-flat animate-pulse space-y-3 border-teal-100 bg-teal-50/40">
-                            <div class="h-4 bg-teal-100 rounded w-3/4"></div>
-                            <div class="flex gap-2">
-                                <div class="h-3 bg-teal-100 rounded w-16"></div>
-                                <div class="h-3 bg-teal-100 rounded w-20"></div>
-                            </div>
-                            <div class="h-3 bg-teal-100 rounded w-1/2"></div>
+            <div x-show="generating" x-cloak class="space-y-3">
+                @for ($s = 0; $s < max(min($aiCount, 3), 1); $s++)
+                    <div class="bento-flat animate-pulse space-y-3 border-teal-100 bg-teal-50/40">
+                        <div class="h-4 bg-teal-100 rounded w-3/4"></div>
+                        <div class="flex gap-2">
+                            <div class="h-3 bg-teal-100 rounded w-16"></div>
+                            <div class="h-3 bg-teal-100 rounded w-20"></div>
                         </div>
-                    @endfor
-                </div>
-            @endif
+                        <div class="h-3 bg-teal-100 rounded w-1/2"></div>
+                    </div>
+                @endfor
+            </div>
         </div>
     @endif
 
@@ -508,7 +540,11 @@ new #[Title('Manage Questions')] class extends Component {
                     <flux:heading size="lg">Review Generated Questions</flux:heading>
                 </div>
                 <flux:button variant="primary" size="sm" wire:click="confirmAllAiQuestions">
-                    Add All ({{ count($pendingAiQuestions) }})
+                    <span wire:loading.remove wire:target="confirmAllAiQuestions">Add All ({{ count($pendingAiQuestions) }})</span>
+                    <span wire:loading wire:target="confirmAllAiQuestions" class="inline-flex items-center gap-1">
+                        <svg class="animate-spin size-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                        Adding…
+                    </span>
                 </flux:button>
             </div>
 
@@ -634,7 +670,11 @@ new #[Title('Manage Questions')] class extends Component {
                     <flux:button variant="ghost">Cancel</flux:button>
                 </flux:modal.close>
                 <flux:button variant="primary" wire:click="importCsv" icon="arrow-up-tray">
-                    Import
+                    <span wire:loading.remove wire:target="importCsv">Import</span>
+                    <span wire:loading wire:target="importCsv" class="inline-flex items-center gap-1">
+                        <svg class="animate-spin size-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                        Importing…
+                    </span>
                 </flux:button>
             </div>
         </div>

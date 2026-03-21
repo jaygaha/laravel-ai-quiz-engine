@@ -472,41 +472,44 @@ BROADCAST_CONNECTION=reverb
 
 ---
 
-## Phase 5 — Advanced AI (RAG, Personalisation, pgvector) 📋 Planned
+## Phase 5 — Advanced AI (RAG, Personalisation, pgvector) ✅ Complete
 
-The intelligence layer: semantic question retrieval, personalised recommendations, and embedding-based analytics.
+The intelligence layer: semantic question retrieval via pgvector embeddings, personalised study recommendations, RAG-enhanced grading, and AI cost controls.
 
 ### Tasks
 
 **pgvector setup**
-- [ ] Enable `pgvector` extension in PostgreSQL: `CREATE EXTENSION vector;`
-- [ ] Migration: add `embedding vector(1536)` column to `questions` table
-- [ ] Migration: add `embedding vector(1536)` column to `attempts` table (for answer embeddings)
-- [ ] `SimilaritySearchTool` queries `questions` by cosine distance
+- [x] Enable `pgvector` extension via `Schema::ensureVectorExtensionExists()` migration
+- [x] Migration: add `embedding vector(1536)` column with HNSW index to `questions` table
+- [x] Migration: add `embedding vector(1536)` column with HNSW index to `attempts` table
+- [x] Docker: `pgvector/pgvector:pg18` (Sail) and `pgvector/pgvector:pg17` (CI)
 
 **Question bank embeddings**
-- [ ] `GenerateQuestionEmbeddingJob` — queued, generates and stores embedding when a question is created or updated
-- [ ] `QuestionObserver` triggers the job on `created` and `updated` events
-- [ ] `SimilaritySearchTool`: given a query string, returns the top-N most similar questions
+- [x] `GenerateQuestionEmbeddingJob` — queued job generates and stores embedding via `Embeddings::for()` (3 retries, 60s backoff)
+- [x] `GenerateAttemptEmbeddingJob` — queued job embeds concatenated answer values on exam submission
+- [x] `QuestionObserver` dispatches embedding job on `created` and `updated` (only when `question` or `correct_answer` changed)
+- [x] `BackfillQuestionEmbeddingsCommand` — `php artisan questions:backfill-embeddings` for existing data
 
-**Personalised recommendations**
-- [ ] Embed each completed `Attempt.answers` JSON for the subject/topic
-- [ ] Post-results page: "Practice more on these topics" — semantic search surfaces similar questions from the question bank
-- [ ] Teacher analytics: "Most struggled topics" — cluster low-scoring attempt embeddings by topic
+**Similarity search + personalised recommendations**
+- [x] `QuestionSimilarityService` — standalone service using `whereVectorSimilarTo()` for Livewire components
+- [x] Student exam-results page: "Recommended Practice" — semantic search surfaces similar questions from other exams based on incorrect answers
+- [x] Teacher exam-results page: "Most Struggled Questions" — questions with lowest correct-answer rates across all attempts
 
 **AutoGraderAgent upgrade (RAG path)**
-- [ ] `SimilaritySearchTool` attached to `AutoGraderAgent`
-- [ ] Agent retrieves semantically similar past answers to calibrate scoring consistency
+- [x] `AutoGraderAgent` implements `HasTools` with `#[MaxSteps(3)]`
+- [x] `SimilaritySearch::usingModel(Question::class, 'embedding')` tool for grading calibration
+- [x] Instructions guide agent to search similar questions before grading
 
 **Rate limiting + cost control**
-- [ ] Per-user AI request rate limiter (Redis-backed, configurable per tier)
-- [ ] Token budget tracking: `ai_usage` table logs model, tokens, and cost estimate per request
-- [ ] Admin view: daily token spend per user and per model
-- [ ] Hard stop: AI endpoints return `429` when budget exceeded; graceful UI message
+- [x] Per-user AI rate limiter via `RateLimiter::for('ai', ...)` (configurable per-minute limit)
+- [x] `ai_usages` table + `AiUsage` model: logs agent, model, input/output tokens, estimated cost per request
+- [x] `LogAiUsageListener` handles `AgentPrompted` and `EmbeddingsGenerated` SDK events
+- [x] Teacher "AI Usage" dashboard: daily spend (7 days), per-model breakdown, total cost
+- [x] Daily budget hard stop: cache flag `ai_budget_exceeded:{userId}` set when exceeded; graceful UI messages in all AI-calling components
 
-**AI mock for CI**
-- [ ] `AI::fake()` used in all existing and new AI-related tests — zero real API calls
-- [ ] `AiFakeServiceProvider` registered in `AppServiceProvider` when `APP_ENV=testing`
+**Embeddings::fake() for CI**
+- [x] Global `Embeddings::fake()` in `tests/Pest.php` `beforeEach` — zero real embedding API calls in all Feature tests
+- [x] 24 new tests across 5 test files covering pgvector, embeddings, similarity, recommendations, and AI usage
 
 ---
 

@@ -21,6 +21,7 @@ class Attempt extends Model
         'score',
         'started_at',
         'completed_at',
+        'embedding',
     ];
 
     protected function casts(): array
@@ -30,6 +31,7 @@ class Attempt extends Model
             'score' => 'integer',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'embedding' => 'array',
         ];
     }
 

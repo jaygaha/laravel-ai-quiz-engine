@@ -3,6 +3,7 @@
 use App\Enums\QuestionType;
 use App\Jobs\ExportStudentResultJob;
 use App\Models\Attempt;
+use App\Services\QuestionSimilarityService;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -68,6 +69,56 @@ new #[Title('Exam Results')] class extends Component {
 
         session()->flash('export_status', 'Your PDF is being generated — you will receive an email shortly.');
     }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Models\Question>
+     */
+    #[Computed]
+    public function recommendations(): \Illuminate\Database\Eloquent\Collection
+    {
+        $incorrectTexts = [];
+
+        foreach ($this->attempt->exam->questions as $question) {
+            $given = $this->attempt->answers[$question->id] ?? null;
+
+            if ($given === null) {
+                continue;
+            }
+
+            $isCorrect = false;
+
+            if (is_array($given)) {
+                if ($given['ai_graded'] ?? false) {
+                    $isCorrect = ($given['ai_score'] ?? 0) >= 50;
+                } else {
+                    $value = $given['value'] ?? null;
+                    $isCorrect = $value !== null && $value !== '' &&
+                        strtolower(trim($value)) === strtolower(trim($question->correct_answer));
+                }
+            } else {
+                $isCorrect = strtolower(trim($given)) === strtolower(trim($question->correct_answer));
+            }
+
+            if (! $isCorrect) {
+                $incorrectTexts[] = $question->question;
+            }
+        }
+
+        if (empty($incorrectTexts)) {
+            return new \Illuminate\Database\Eloquent\Collection;
+        }
+
+        $query = implode(' ', array_slice($incorrectTexts, 0, 3));
+
+        try {
+            return app(QuestionSimilarityService::class)
+                ->findSimilar($query, limit: 5, excludeExamId: $this->attempt->exam_id);
+        } catch (\Throwable $e) {
+            logger()->warning('Recommendations unavailable', ['error' => $e->getMessage()]);
+
+            return new \Illuminate\Database\Eloquent\Collection;
+        }
+    }
 }; ?>
 
 <div class="mx-auto max-w-3xl flex flex-col gap-6">
@@ -93,6 +144,34 @@ new #[Title('Exam Results')] class extends Component {
             {{ $attempt->score >= 70 ? 'Passed' : ($attempt->score >= 50 ? 'Needs Improvement' : 'Failed') }}
         </flux:badge>
     </div>
+
+    {{-- Recommended Practice --}}
+    @if ($this->recommendations->isNotEmpty())
+        <div class="bento-flat space-y-3">
+            <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+                </svg>
+                <flux:heading size="lg">Recommended Practice</flux:heading>
+            </div>
+            <flux:text size="sm">Based on the questions you missed, here are similar questions from other exams to practice:</flux:text>
+            <div class="space-y-2">
+                @foreach ($this->recommendations as $rec)
+                    <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
+                        <span class="inline-flex items-center justify-center min-w-6 h-6 rounded-md bg-teal-50 text-teal-700 text-xs font-bold shrink-0 mt-0.5">
+                            {{ $loop->iteration }}
+                        </span>
+                        <div class="flex-1 min-w-0">
+                            <flux:text class="font-medium">{{ $rec->question }}</flux:text>
+                            <flux:text size="sm" class="mt-0.5">
+                                From: <a href="{{ route('student.exams.take', $rec->exam) }}" wire:navigate class="text-teal-600 hover:underline">{{ $rec->exam->title }}</a>
+                            </flux:text>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
 
     {{-- Question Review --}}
     <flux:heading size="lg">Question Review</flux:heading>
@@ -172,10 +251,16 @@ new #[Title('Exam Results')] class extends Component {
     </div>
 
     <div class="flex justify-center gap-3 flex-wrap">
-        <flux:button variant="outline" icon="arrow-down-tray" wire:click="requestExport" wire:loading.attr="disabled"
+        <flux:button variant="outline" wire:click="requestExport" wire:loading.attr="disabled"
             wire:target="requestExport">
-            <span wire:loading.remove wire:target="requestExport">Download Result (PDF)</span>
-            <span wire:loading wire:target="requestExport">Queuing…</span>
+            <span wire:loading.remove wire:target="requestExport" class="inline-flex items-center gap-1">
+                <flux:icon.arrow-down-tray class="size-4" />
+                Download Result (PDF)
+            </span>
+            <span wire:loading wire:target="requestExport" class="inline-flex items-center gap-1">
+                <svg class="animate-spin size-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                Queuing…
+            </span>
         </flux:button>
         @if ($attempt->exam->leaderboard_enabled)
             <flux:button variant="outline" icon="chart-bar" :href="route('student.exams.leaderboard', $attempt->exam)"
