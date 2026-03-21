@@ -44,10 +44,18 @@ class ImportQuestionsFromCsvJob implements ShouldQueue
         $skipped = 0;
 
         while (($row = fgetcsv($handle)) !== false) {
-            if (count($row) < count($header)) {
+            $headerCount = count($header);
+
+            if (count($row) < $headerCount) {
                 $skipped++;
 
                 continue;
+            }
+
+            // When extra columns exist (unquoted commas in the last field), rejoin them
+            if (count($row) > $headerCount) {
+                $extra = array_splice($row, $headerCount - 1);
+                $row[] = implode(',', $extra);
             }
 
             $data = array_combine($header, $row);

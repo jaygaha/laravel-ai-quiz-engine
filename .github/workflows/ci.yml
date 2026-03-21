@@ -220,7 +220,7 @@ jobs:
     # (e.g. strict type coercion, JSON operators) that SQLite would mask.
     services:
       pgsql:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_DB: testing
           POSTGRES_USER: sail

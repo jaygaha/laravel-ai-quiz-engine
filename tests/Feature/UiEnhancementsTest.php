@@ -5,7 +5,6 @@ use App\Models\Exam;
 use App\Models\Question;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
@@ -68,10 +67,7 @@ it('question bank add-to-exam requires a target exam', function () {
 
 // ── CSV Import ────────────────────────────────────────────────────────────────
 
-it('questions page dispatches ImportQuestionsFromCsvJob when CSV is uploaded', function () {
-    Queue::fake();
-    Storage::fake('local');
-
+it('questions page imports CSV and creates questions immediately', function () {
     $teacher = User::factory()->teacher()->create();
     $exam = Exam::factory()->published()->for($teacher)->create();
 
@@ -85,7 +81,8 @@ it('questions page dispatches ImportQuestionsFromCsvJob when CSV is uploaded', f
         ->set('csvFile', $csv)
         ->call('importCsv');
 
-    Queue::assertPushed(ImportQuestionsFromCsvJob::class, fn ($job) => $job->examId === $exam->id);
+    expect($exam->questions()->count())->toBe(1)
+        ->and($exam->questions()->first()->question)->toBe('What is 2+2?');
 });
 
 it('ImportQuestionsFromCsvJob imports valid rows and skips malformed ones', function () {
@@ -123,6 +120,24 @@ it('ImportQuestionsFromCsvJob skips rows with fewer columns than header', functi
     (new ImportQuestionsFromCsvJob($exam->id, 'imports/test.csv'))->handle();
 
     expect($exam->questions()->count())->toBe(1);
+});
+
+it('ImportQuestionsFromCsvJob handles unquoted commas in the last column', function () {
+    $teacher = User::factory()->teacher()->create();
+    $exam = Exam::factory()->published()->for($teacher)->create();
+
+    $csv = implode("\n", [
+        'question,type,options,correct_answer',
+        'What is a slice?,multiple_choice,Array|List|Map,A pointer to an array, length, and capacity',
+    ]);
+
+    Storage::fake('local');
+    Storage::disk('local')->put('imports/test.csv', $csv);
+
+    (new ImportQuestionsFromCsvJob($exam->id, 'imports/test.csv'))->handle();
+
+    expect($exam->questions()->count())->toBe(1)
+        ->and($exam->questions()->first()->correct_answer)->toBe('A pointer to an array, length, and capacity');
 });
 
 // ── Exam Preview Mode ─────────────────────────────────────────────────────────

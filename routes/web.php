@@ -23,6 +23,7 @@ Route::middleware(['auth', 'verified', 'role:teacher'])
         Route::livewire('/exams/{exam}/questions', 'pages::teacher.exams.questions')->name('exams.questions');
         Route::livewire('/exams/{exam}/results', 'pages::teacher.exams.results')->name('exams.results');
         Route::livewire('/questions', 'pages::teacher.question-bank')->name('questions.index');
+        Route::livewire('/ai-usage', 'pages::teacher.ai-usage')->name('ai-usage');
     });
 
 // Student routes

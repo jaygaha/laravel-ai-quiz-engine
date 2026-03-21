@@ -5,8 +5,11 @@ use App\Ai\Agents\HintAgent;
 use App\Ai\ResolvedProviders;
 use App\Enums\QuestionType;
 use App\Events\AttemptSubmittedEvent;
+use App\Jobs\GenerateAttemptEmbeddingJob;
 use App\Models\Attempt;
 use App\Models\Exam;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -141,6 +144,13 @@ new #[Title('Take Exam')] class extends Component {
 
     public function streamHint(int $questionId): void
     {
+        if (Cache::has('ai_budget_exceeded:'.auth()->id()) ||
+            ! RateLimiter::attempt('ai:'.auth()->id(), config('ai.rate_limit.per_minute', 30), fn () => true)) {
+            $this->hints[$questionId] = 'AI is temporarily unavailable. Please try again later.';
+
+            return;
+        }
+
         $question = $this->exam->questions->firstWhere('id', $questionId);
 
         if (! $question) {
@@ -152,17 +162,23 @@ new #[Title('Take Exam')] class extends Component {
         $answerData    = $this->answers[$questionId] ?? null;
         $currentAnswer = is_array($answerData) ? ($answerData['value'] ?? '') : ($answerData ?? '');
 
-        $stream = (new HintAgent($question->question))
-            ->stream(
-                $currentAnswer ?: 'I have not answered yet.',
-                provider: ResolvedProviders::list(),
-            );
+        try {
+            $stream = (new HintAgent($question->question))
+                ->stream(
+                    $currentAnswer ?: 'I have not answered yet.',
+                    provider: ResolvedProviders::list(),
+                );
 
-        foreach ($stream as $event) {
-            if ($event instanceof TextDelta) {
-                $this->hints[$questionId] .= $event->delta;
-                $this->stream(to: "hint-{$questionId}", content: $event->delta);
+            foreach ($stream as $event) {
+                if ($event instanceof TextDelta) {
+                    $this->hints[$questionId] .= $event->delta;
+                    $this->stream(to: "hint-{$questionId}", content: $event->delta);
+                }
             }
+        } catch (\Throwable $e) {
+            logger()->warning('Hint streaming failed', ['error' => $e->getMessage()]);
+            $this->hints[$questionId] = 'Hint unavailable — AI provider could not be reached. Please try again later.';
+            $this->stream(to: "hint-{$questionId}", content: $this->hints[$questionId]);
         }
     }
 
@@ -240,6 +256,8 @@ new #[Title('Take Exam')] class extends Component {
             'score'        => $score,
             'completed_at' => now(),
         ]);
+
+        GenerateAttemptEmbeddingJob::dispatch($this->attempt);
 
         // Broadcast live submission counter to teacher dashboard
         if (config('broadcasting.default') === 'reverb') {
@@ -479,12 +497,18 @@ new #[Title('Take Exam')] class extends Component {
                             <flux:button
                                 size="sm"
                                 variant="ghost"
-                                icon="light-bulb"
                                 x-bind:disabled="loading"
                                 x-on:click="loading = true; showHint = true; $wire.streamHint({{ $question->id }}).then(() => loading = false)"
+                                :loading="false"
                             >
-                                <span x-show="!loading">Get a Hint</span>
-                                <span x-show="loading" x-cloak>Thinking…</span>
+                                <span x-show="!loading" class="inline-flex items-center gap-1">
+                                    <flux:icon.light-bulb class="size-4" />
+                                    Get a Hint
+                                </span>
+                                <span x-show="loading" x-cloak class="inline-flex items-center gap-1">
+                                    <svg class="animate-spin size-3.5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                                    Thinking…
+                                </span>
                             </flux:button>
                         </div>
 
@@ -512,12 +536,17 @@ new #[Title('Take Exam')] class extends Component {
                 <flux:button
                     variant="primary"
                     type="submit"
-                    icon="check"
                     wire:loading.attr="disabled"
                     wire:target="submitExam"
                 >
-                    <span wire:loading wire:target="submitExam">Grading…</span>
-                    <span wire:loading.remove wire:target="submitExam">Submit Exam</span>
+                    <span wire:loading.remove wire:target="submitExam" class="inline-flex items-center gap-1">
+                        <flux:icon.check class="size-4" />
+                        Submit Exam
+                    </span>
+                    <span wire:loading wire:target="submitExam" class="inline-flex items-center gap-1">
+                        <svg class="animate-spin size-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                        Grading…
+                    </span>
                 </flux:button>
             @endif
         </div>

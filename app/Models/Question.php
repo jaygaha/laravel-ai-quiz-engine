@@ -21,6 +21,7 @@ class Question extends Model
         'options',
         'correct_answer',
         'order',
+        'embedding',
     ];
 
     protected function casts(): array
@@ -29,6 +30,7 @@ class Question extends Model
             'type' => QuestionType::class,
             'options' => 'array',
             'order' => 'integer',
+            'embedding' => 'array',
         ];
     }
 

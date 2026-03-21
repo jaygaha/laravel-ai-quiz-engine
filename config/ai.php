@@ -31,6 +31,28 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Rate Limiting & Cost Controls
+    |--------------------------------------------------------------------------
+    |
+    | Configure per-user AI rate limits and daily spending budgets.
+    | When the daily budget is exceeded, a cache flag is set to block
+    | further AI calls until the next day.
+    |
+    */
+
+    'rate_limit' => [
+        'per_minute' => env('AI_RATE_LIMIT_PER_MINUTE', 30),
+        'daily_budget' => env('AI_DAILY_BUDGET', 5.00),
+    ],
+
+    'costs' => [
+        'claude-sonnet-4-6' => ['input' => 0.003, 'output' => 0.015],
+        'claude-haiku-4-5-20251001' => ['input' => 0.001, 'output' => 0.005],
+        'text-embedding-3-small' => ['input' => 0.00002, 'output' => 0],
+    ],
+
     'caching' => [
         'embeddings' => [
             'cache' => false,

@@ -44,6 +44,14 @@
                         >
                             Question Bank
                         </flux:sidebar.item>
+                        <flux:sidebar.item
+                            icon="chart-bar-square"
+                            :href="route('teacher.ai-usage')"
+                            :current="request()->routeIs('teacher.ai-usage')"
+                            wire:navigate
+                        >
+                            AI Usage
+                        </flux:sidebar.item>
                     @else
                         <div style="padding:0 0.5rem 0.375rem; font-size:0.6875rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:#9CA3AF;">
                             Learning

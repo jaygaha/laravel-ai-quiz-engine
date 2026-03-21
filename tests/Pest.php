@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Ai\Embeddings;
 use Tests\TestCase;
 
 /*
@@ -16,6 +17,7 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(fn () => Embeddings::fake())
     ->in('Feature');
 
 /*
