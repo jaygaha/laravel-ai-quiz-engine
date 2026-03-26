@@ -67,7 +67,7 @@ new #[Title('Exam Results')] class extends Component {
     {
         ExportStudentResultJob::dispatch($this->attempt->id);
 
-        session()->flash('export_status', 'Your PDF is being generated — you will receive an email shortly.');
+        $this->dispatch('toast', variant: 'success', heading: 'Export queued', text: 'Your PDF is being generated — you will receive an email shortly.');
     }
 
     /**
@@ -126,10 +126,6 @@ new #[Title('Exam Results')] class extends Component {
         <flux:button variant="ghost" icon="arrow-left" :href="route('student.dashboard')" wire:navigate />
         <flux:heading size="xl">Results: {{ $attempt->exam->title }}</flux:heading>
     </div>
-
-    @if (session('export_status'))
-        <flux:callout variant="success" icon="check-circle" heading="{{ session('export_status') }}" />
-    @endif
 
     {{-- Score Card --}}
     <div class="bento-flat p-8 text-center space-y-3">

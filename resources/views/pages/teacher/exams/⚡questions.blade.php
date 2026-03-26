@@ -145,7 +145,7 @@ new #[Title('Manage Questions')] class extends Component {
 
         $this->modal('csv-import')->close();
 
-        session()->flash('status', 'CSV imported successfully.');
+        $this->dispatch('toast', variant: 'success', heading: 'Import complete', text: 'CSV questions have been imported.');
     }
 
     /**
@@ -195,7 +195,7 @@ new #[Title('Manage Questions')] class extends Component {
                 );
             });
 
-            session()->flash('status', "Generating {$this->aiCount} questions in the background. Refresh in a moment.");
+            $this->dispatch('toast', heading: 'Queued', text: "Generating {$this->aiCount} questions in the background. Refresh in a moment.");
         } catch (\Throwable $e) {
             logger()->error('AI generation failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->aiError = 'AI generation failed. Please try again or add questions manually.';
@@ -409,10 +409,6 @@ new #[Title('Manage Questions')] class extends Component {
             <flux:button variant="ghost" wire:click="toggleAiPanel">Cancel</flux:button>
         @endif
     </div>
-
-    @if (session('status'))
-        <flux:callout variant="success" icon="check-circle" heading="{{ session('status') }}" />
-    @endif
 
     {{-- ── AI Generation Panel ── --}}
     @if ($showAiPanel)

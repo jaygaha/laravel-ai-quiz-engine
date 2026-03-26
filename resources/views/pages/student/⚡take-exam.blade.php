@@ -73,8 +73,8 @@ new #[Title('Take Exam')] class extends Component {
      * Ensure every question slot uses the canonical { value, flagged } shape.
      * Handles three legacy cases:
      *   1. Slot missing entirely (new exam)
-     *   2. Slot is a plain string (Phase 3 or older attempt)
-     *   3. Slot is an AI-graded array without the 'value' key (Phase 3 AI-graded)
+     *   2. Slot is a plain string (legacy attempt)
+     *   3. Slot is an AI-graded array without the 'value' key (legacy AI-graded)
      */
     private function normalizeAnswers(): void
     {
@@ -271,7 +271,7 @@ new #[Title('Take Exam')] class extends Component {
         }
 
         if ($this->timedOut) {
-            session()->flash('status', "Time's up — your exam has been automatically submitted.");
+            $this->dispatch('toast', variant: 'warning', heading: "Time's up", text: 'Your exam has been automatically submitted.');
         }
 
         $this->redirect(route('student.attempts.results', $this->attempt), navigate: true);
