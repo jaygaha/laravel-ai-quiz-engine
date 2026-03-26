@@ -64,7 +64,7 @@ new #[Title('Question Bank')] class extends Component {
         $this->showAddModal       = false;
         $this->selectedQuestionId = null;
 
-        session()->flash('status', 'Question copied to "'.$target->title.'".');
+        $this->dispatch('toast', variant: 'success', text: 'Question copied to "'.$target->title.'".');
     }
 
     #[Computed]
@@ -106,10 +106,6 @@ new #[Title('Question Bank')] class extends Component {
             My Exams
         </flux:button>
     </div>
-
-    @if (session('status'))
-        <flux:callout variant="success" icon="check-circle" heading="{{ session('status') }}" />
-    @endif
 
     {{-- ── Filters ── --}}
     <div class="flex flex-col gap-3 sm:flex-row sm:items-end">

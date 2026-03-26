@@ -20,7 +20,7 @@ new #[Title('Exam Results')] class extends Component {
     {
         ExportExamResultsJob::dispatch($this->exam->id, auth()->id());
 
-        session()->flash('status', 'Your PDF is being generated — you will receive an email shortly.');
+        $this->dispatch('toast', variant: 'success', heading: 'Export queued', text: 'Your PDF is being generated — you will receive an email shortly.');
     }
 
     #[Computed]
@@ -124,10 +124,6 @@ new #[Title('Exam Results')] class extends Component {
             </span>
         </flux:button>
     </div>
-
-    @if (session('status'))
-        <flux:callout variant="success" icon="check-circle" heading="{{ session('status') }}" />
-    @endif
 
     {{-- Summary stats --}}
     <div class="grid grid-cols-3 gap-4">
