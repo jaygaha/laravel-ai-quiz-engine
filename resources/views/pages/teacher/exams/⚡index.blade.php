@@ -41,6 +41,24 @@ new #[Title('My Exams')] class extends Component {
         $exam->delete();
     }
 
+    public function duplicateExam(Exam $exam): mixed
+    {
+        abort_unless(auth()->id() === $exam->user_id, 403);
+
+        $clone = $exam->replicate(['published_at', 'embedding']);
+        $clone->title = $exam->title.' (Copy)';
+        $clone->published_at = null;
+        $clone->save();
+
+        foreach ($exam->questions()->orderBy('order')->get() as $question) {
+            $clone->questions()->create(
+                $question->only(['question', 'type', 'options', 'correct_answer', 'order']),
+            );
+        }
+
+        return $this->redirect(route('teacher.exams.edit', $clone), navigate: true);
+    }
+
     /** Receive broadcast from AttemptSubmittedEvent via echo channel. */
     #[On('exam-attempt-submitted')]
     public function handleAttemptSubmitted(int $examId, int $studentCount, string $latestStudentName): void
@@ -151,6 +169,13 @@ new #[Title('My Exams')] class extends Component {
                                 icon="chart-bar"
                                 :href="route('teacher.exams.results', $exam)"
                                 wire:navigate
+                            />
+                            <flux:button
+                                size="sm"
+                                variant="ghost"
+                                icon="document-duplicate"
+                                wire:click="duplicateExam({{ $exam->id }})"
+                                tooltip="Duplicate exam"
                             />
                             <flux:button
                                 size="sm"

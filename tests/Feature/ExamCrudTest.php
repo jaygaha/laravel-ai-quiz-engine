@@ -189,3 +189,69 @@ it('validates question fields are required', function () {
         ->call('saveQuestion')
         ->assertHasErrors(['question', 'correct_answer']);
 });
+
+// --- Clone / Duplicate ---
+
+it('teacher can duplicate their own exam', function () {
+    $teacher = User::factory()->teacher()->create();
+    $exam = Exam::factory()->published()->for($teacher)->create(['title' => 'Physics 101']);
+    Question::factory()->count(3)->for($exam)->create();
+
+    Livewire::actingAs($teacher)
+        ->test('pages::teacher.exams.index')
+        ->call('duplicateExam', $exam->id)
+        ->assertRedirect();
+
+    $clone = Exam::where('title', 'Physics 101 (Copy)')->first();
+
+    expect($clone)->not->toBeNull()
+        ->and($clone->user_id)->toBe($teacher->id)
+        ->and($clone->published_at)->toBeNull()
+        ->and($clone->questions()->count())->toBe(3);
+});
+
+it('duplicated exam questions are independent copies', function () {
+    $teacher = User::factory()->teacher()->create();
+    $exam = Exam::factory()->for($teacher)->create();
+    $question = Question::factory()->for($exam)->create(['question' => 'Original?']);
+
+    Livewire::actingAs($teacher)
+        ->test('pages::teacher.exams.index')
+        ->call('duplicateExam', $exam->id);
+
+    $clone = Exam::where('title', 'LIKE', '%Copy%')->first();
+    $clonedQuestion = $clone->questions()->first();
+
+    expect($clonedQuestion->id)->not->toBe($question->id)
+        ->and($clonedQuestion->question)->toBe('Original?');
+});
+
+it('teacher cannot duplicate another teachers exam', function () {
+    $teacher = User::factory()->teacher()->create();
+    $other = User::factory()->teacher()->create();
+    $exam = Exam::factory()->for($other)->create();
+
+    Livewire::actingAs($teacher)
+        ->test('pages::teacher.exams.index')
+        ->call('duplicateExam', $exam->id)
+        ->assertForbidden();
+});
+
+it('duplicate preserves question order and options', function () {
+    $teacher = User::factory()->teacher()->create();
+    $exam = Exam::factory()->for($teacher)->create();
+    Question::factory()->for($exam)->create(['order' => 1, 'options' => ['A', 'B', 'C', 'D']]);
+    Question::factory()->for($exam)->create(['order' => 2, 'options' => null]);
+
+    Livewire::actingAs($teacher)
+        ->test('pages::teacher.exams.index')
+        ->call('duplicateExam', $exam->id);
+
+    $clone = Exam::where('title', 'LIKE', '%Copy%')->first();
+    $questions = $clone->questions()->orderBy('order')->get();
+
+    expect($questions[0]->order)->toBe(1)
+        ->and($questions[0]->options)->toBe(['A', 'B', 'C', 'D'])
+        ->and($questions[1]->order)->toBe(2)
+        ->and($questions[1]->options)->toBeNull();
+});
