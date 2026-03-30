@@ -6,15 +6,9 @@ Quick wins and nice-to-have features to implement incrementally. Each item is sm
 
 ## Teacher Features
 
-### Exam Clone / Duplicate
-**Effort:** ~30 min | **Priority:** High
+### ~~Exam Clone / Duplicate~~ ✅ Shipped
 
-Teachers recreate similar exams every term. A "Duplicate" button on the exam index would deep-copy the exam and all its questions, creating a new draft with the title suffixed "(Copy)".
-
-- Add `duplicateExam(Exam $exam)` action to the exams index Livewire component
-- Deep-copy exam + all questions (reset `published_at` to null)
-- Redirect to the new exam's edit page
-- Test: verify question count, ownership, and draft status
+Deep-copies exam + all questions as a new draft with "(Copy)" suffix via `duplicateExam()` on the exams index. Redirects to edit page. 4 tests (ownership, independence, order, authorization).
 
 ### Bulk Delete Questions
 **Effort:** ~15 min | **Priority:** Medium
