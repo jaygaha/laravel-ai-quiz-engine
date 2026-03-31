@@ -35,18 +35,9 @@ Old exams clutter the teacher's exam list. Add an "Archive" toggle that hides ex
 
 ## Student Features
 
-### Attempt History Page
-**Effort:** ~20 min | **Priority:** High
+### ~~Attempt History Page~~ ✅ Shipped
 
-The student dashboard only shows the 5 most recent attempts. A dedicated history page would list all past attempts with sorting and filtering.
-
-- New route: `GET /student/attempts` -> `pages::student.attempts`
-- Add sidebar nav item: "My Attempts" with `clock` icon
-- Table: exam title, score, date, duration, status
-- Sortable by date and score
-- Filter by exam name (search input)
-- Pagination (15 per page)
-- Test: verify listing, sorting, and access control
+Dedicated `/student/attempts` page listing all completed attempts. Search by exam name, sort by score or date, paginated (15/page). Sidebar "My Attempts" nav item with `clock` icon. 7 tests (listing, filtering, sorting, pagination, ownership, access control).
 
 ### Dashboard Statistics Card
 **Effort:** ~10 min | **Priority:** Low

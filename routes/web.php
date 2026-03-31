@@ -34,6 +34,7 @@ Route::middleware(['auth', 'verified', 'role:student'])
         Route::livewire('/dashboard', 'pages::student.dashboard')->name('dashboard');
         Route::livewire('/exams/{exam}/take', 'pages::student.take-exam')->name('exams.take');
         Route::livewire('/attempts/{attempt}/results', 'pages::student.exam-results')->name('attempts.results');
+        Route::livewire('/attempts', 'pages::student.attempts')->name('attempts');
         Route::livewire('/exams/{exam}/leaderboard', 'pages::student.leaderboard')->name('exams.leaderboard');
     });
 
