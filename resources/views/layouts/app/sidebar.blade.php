@@ -59,10 +59,18 @@
                         <flux:sidebar.item
                             icon="book-open"
                             :href="route('student.dashboard')"
-                            :current="request()->routeIs('student.*')"
+                            :current="request()->routeIs('student.dashboard', 'student.exams.*', 'student.attempts.results')"
                             wire:navigate
                         >
                             Available Exams
+                        </flux:sidebar.item>
+                        <flux:sidebar.item
+                            icon="clock"
+                            :href="route('student.attempts')"
+                            :current="request()->routeIs('student.attempts')"
+                            wire:navigate
+                        >
+                            My Attempts
                         </flux:sidebar.item>
                     @endif
                 @endauth
