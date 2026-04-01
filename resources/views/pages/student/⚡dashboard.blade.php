@@ -37,9 +37,50 @@ new #[Title('Available Exams')] class extends Component {
             ->limit(5)
             ->get();
     }
+
+    #[Computed]
+    public function totalAttempts(): int
+    {
+        return auth()->user()->attempts()->completed()->count();
+    }
+
+    #[Computed]
+    public function averageScore(): int
+    {
+        return (int) round(
+            auth()->user()->attempts()->completed()->avg('score') ?? 0
+        );
+    }
+
+    #[Computed]
+    public function bestScore(): int
+    {
+        return (int) (auth()->user()->attempts()->completed()->max('score') ?? 0);
+    }
 }; ?>
 
 <div class="flex flex-col gap-8">
+    @if ($this->totalAttempts > 0)
+        <div class="grid grid-cols-3 gap-4">
+            <div class="bento-flat p-5 text-center">
+                <div class="text-3xl font-bold text-teal-700">{{ $this->totalAttempts }}</div>
+                <flux:text class="text-sm mt-1">Exams Taken</flux:text>
+            </div>
+            <div class="bento-flat p-5 text-center">
+                <div class="text-3xl font-bold {{ $this->averageScore >= 70 ? 'score-pass' : ($this->averageScore >= 50 ? 'score-warn' : 'score-fail') }}">
+                    {{ $this->averageScore }}%
+                </div>
+                <flux:text class="text-sm mt-1">Average Score</flux:text>
+            </div>
+            <div class="bento-flat p-5 text-center">
+                <div class="text-3xl font-bold {{ $this->bestScore >= 70 ? 'score-pass' : ($this->bestScore >= 50 ? 'score-warn' : 'score-fail') }}">
+                    {{ $this->bestScore }}%
+                </div>
+                <flux:text class="text-sm mt-1">Best Score</flux:text>
+            </div>
+        </div>
+    @endif
+
         <flux:heading size="xl">Available Exams</flux:heading>
 
         <flux:input wire:model.live.debounce="search" placeholder="Search exams…" icon="magnifying-glass" clearable />

@@ -39,14 +39,9 @@ Old exams clutter the teacher's exam list. Add an "Archive" toggle that hides ex
 
 Dedicated `/student/attempts` page listing all completed attempts. Search by exam name, sort by score or date, paginated (15/page). Sidebar "My Attempts" nav item with `clock` icon. 7 tests (listing, filtering, sorting, pagination, ownership, access control).
 
-### Dashboard Statistics Card
-**Effort:** ~10 min | **Priority:** Low
+### ~~Dashboard Statistics Card~~ ✅ Shipped
 
-Show a stats summary at the top of the student dashboard: total exams taken, average score, best score, and streak count.
-
-- Computed properties on dashboard component
-- Bento-grid stat cards matching existing design
-- No new models or migrations needed
+Three bento stat cards at the top of the student dashboard (hidden until first attempt): Exams Taken, Average Score, Best Score. Pure computed properties — no migrations. 5 tests (zero state, completed-only, average, best, ownership).
 
 ---
 
