@@ -57,6 +57,25 @@ new #[Title('Available Exams')] class extends Component {
     {
         return (int) (auth()->user()->attempts()->completed()->max('score') ?? 0);
     }
+
+    /**
+     * @return array<int, array{label: string, score: int, date: string}>
+     */
+    #[Computed]
+    public function progressChartData(): array
+    {
+        return auth()->user()->attempts()
+            ->completed()
+            ->with('exam:id,title')
+            ->orderBy('completed_at')
+            ->get()
+            ->map(fn ($attempt) => [
+                'label' => $attempt->exam->title.' ('.$attempt->completed_at->format('M j').')',
+                'score' => $attempt->score,
+                'date' => $attempt->completed_at->format('M j, Y'),
+            ])
+            ->toArray();
+    }
 }; ?>
 
 <div class="flex flex-col gap-8">
@@ -124,6 +143,24 @@ new #[Title('Available Exams')] class extends Component {
 
         {{ $this->availableExams->links() }}
 
+        @if (count($this->progressChartData) >= 2)
+            <div class="bento-flat p-5 space-y-3">
+                <div class="flex items-center justify-between">
+                    <flux:heading size="lg">Score Progress</flux:heading>
+                    <flux:button variant="ghost" size="sm" :href="route('student.attempts')" wire:navigate>
+                        View all
+                    </flux:button>
+                </div>
+                <div
+                    x-data="progressChart(@js($this->progressChartData))"
+                    x-init="init()"
+                    style="height:220px; position:relative;"
+                >
+                    <canvas x-ref="canvas"></canvas>
+                </div>
+            </div>
+        @endif
+
         @if ($this->myAttempts->isNotEmpty())
             <div class="space-y-4">
                 <flux:heading size="lg">Recent Attempts</flux:heading>
@@ -178,3 +215,64 @@ new #[Title('Available Exams')] class extends Component {
             </div>
         @endif
     </div>
+
+@once
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+    <script>
+        function progressChart(data) {
+            return {
+                init() {
+                    const scores = data.map(d => d.score);
+                    const labels = data.map(d => d.date);
+
+                    new Chart(this.$refs.canvas, {
+                        type: 'line',
+                        data: {
+                            labels,
+                            datasets: [{
+                                data: scores,
+                                borderColor: '#0d9488',
+                                backgroundColor: 'rgba(13,148,136,0.08)',
+                                borderWidth: 2,
+                                pointBackgroundColor: scores.map(s =>
+                                    s >= 70 ? '#16a34a' : s >= 50 ? '#d97706' : '#dc2626'
+                                ),
+                                pointRadius: 5,
+                                pointHoverRadius: 7,
+                                fill: true,
+                                tension: 0.3,
+                            }],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: ctx => ` ${ctx.parsed.y}%`,
+                                    },
+                                },
+                            },
+                            scales: {
+                                y: {
+                                    min: 0,
+                                    max: 100,
+                                    ticks: {
+                                        callback: v => v + '%',
+                                        stepSize: 25,
+                                    },
+                                    grid: { color: 'rgba(0,0,0,0.05)' },
+                                },
+                                x: {
+                                    grid: { display: false },
+                                    ticks: { maxTicksLimit: 8 },
+                                },
+                            },
+                        },
+                    });
+                },
+            };
+        }
+    </script>
+@endonce
