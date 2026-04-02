@@ -85,15 +85,9 @@ Let teachers export an exam (with questions) as a JSON file and import it into a
 - "Import from JSON" option alongside CSV import
 - Useful for sharing exam templates between teachers
 
-### Student Progress Over Time
-**Effort:** ~30 min | **Priority:** Medium
+### ~~Student Progress Over Time~~ ✅ Shipped
 
-A chart showing score trends across attempts for a student, helping them track improvement.
-
-- New section on student dashboard or dedicated page
-- Line chart: score (y-axis) vs attempt date (x-axis)
-- Group by exam or show all attempts
-- Use a lightweight chart library (Chart.js via CDN or Alpine plugin)
+Line chart on the student dashboard (visible once 2+ completed attempts exist) showing score trends over time. Chart.js via CDN, Alpine.js init, teal line with per-point pass/warn/fail colouring, y-axis 0–100%. 5 Pest tests (empty state, completed-only, date sort, fields, ownership).
 
 ---
 
