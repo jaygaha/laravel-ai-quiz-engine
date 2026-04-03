@@ -48,6 +48,12 @@ new #[Title('Manage Questions')] class extends Component {
     #[Validate('file|mimes:csv,txt|max:512')]
     public mixed $csvFile = null;
 
+    // --- Bulk selection ---
+    /** @var array<int, int> */
+    public array $selectedQuestions = [];
+
+    public bool $selectAll = false;
+
     public bool $aiGenerating = false;
     public string $aiError = '';
 
@@ -120,6 +126,32 @@ new #[Title('Manage Questions')] class extends Component {
     {
         abort_unless($question->exam_id === $this->exam->id, 403);
         $question->delete();
+    }
+
+    public function updatedSelectAll(): void
+    {
+        $this->selectedQuestions = $this->selectAll
+            ? $this->questions->pluck('id')->map(fn ($id) => (int) $id)->all()
+            : [];
+    }
+
+    public function deleteSelected(): void
+    {
+        if (empty($this->selectedQuestions)) {
+            return;
+        }
+
+        $count = Question::query()
+            ->whereIn('id', $this->selectedQuestions)
+            ->where('exam_id', $this->exam->id)
+            ->delete();
+
+        $this->selectedQuestions = [];
+        $this->selectAll = false;
+        unset($this->questions);
+
+        $this->modal('confirm-bulk-delete')->close();
+        $this->dispatch('toast', variant: 'success', heading: 'Deleted', text: "{$count} question(s) deleted.");
     }
 
     public function cancel(): void
@@ -678,8 +710,36 @@ new #[Title('Manage Questions')] class extends Component {
 
     {{-- ── Question List ── --}}
     <div class="space-y-3">
+        @if ($this->questions->isNotEmpty())
+            <div class="flex items-center justify-between">
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        wire:model.live="selectAll"
+                        class="rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <flux:text size="sm">Select All</flux:text>
+                </label>
+                @if (count($selectedQuestions) > 0)
+                    <flux:modal.trigger name="confirm-bulk-delete">
+                        <flux:button size="sm" variant="ghost" icon="trash" class="text-red-500">
+                            Delete Selected ({{ count($selectedQuestions) }})
+                        </flux:button>
+                    </flux:modal.trigger>
+                @endif
+            </div>
+        @endif
+
         @forelse ($this->questions as $q)
-            <div class="bento-flat flex items-start justify-between gap-4" wire:key="question-{{ $q->id }}">
+            <div class="bento-flat flex items-start gap-4" wire:key="question-{{ $q->id }}">
+                <div class="flex items-center pt-0.5 shrink-0">
+                    <input
+                        type="checkbox"
+                        wire:model.live="selectedQuestions"
+                        value="{{ $q->id }}"
+                        class="rounded border-zinc-300 text-teal-600 focus:ring-teal-500"
+                    />
+                </div>
                 <div class="flex-1 space-y-1">
                     <flux:text class="font-medium">{{ $q->question }}</flux:text>
                     <div class="flex items-center gap-2">
@@ -707,4 +767,24 @@ new #[Title('Manage Questions')] class extends Component {
             </div>
         @endforelse
     </div>
+
+    {{-- ── Confirm Bulk Delete Modal ── --}}
+    <flux:modal name="confirm-bulk-delete" class="max-w-sm">
+        <div class="space-y-4">
+            <div>
+                <flux:heading size="lg">Delete Selected Questions</flux:heading>
+                <flux:text class="mt-1">
+                    Are you sure you want to delete {{ count($selectedQuestions) }} question(s)? This cannot be undone.
+                </flux:text>
+            </div>
+            <div class="flex justify-end gap-3">
+                <flux:modal.close>
+                    <flux:button variant="ghost">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button variant="primary" class="!bg-red-600 hover:!bg-red-700" wire:click="deleteSelected">
+                    Delete
+                </flux:button>
+            </div>
+        </div>
+    </flux:modal>
 </div>

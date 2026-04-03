@@ -10,15 +10,9 @@ Quick wins and nice-to-have features to implement incrementally. Each item is sm
 
 Deep-copies exam + all questions as a new draft with "(Copy)" suffix via `duplicateExam()` on the exams index. Redirects to edit page. 4 tests (ownership, independence, order, authorization).
 
-### Bulk Delete Questions
-**Effort:** ~15 min | **Priority:** Medium
+### ~~Bulk Delete Questions~~ ✅ Shipped
 
-Currently questions can only be deleted one at a time. Add checkbox selection and a "Delete Selected" button on the questions page.
-
-- Add `selectedQuestions` array property with checkbox per question row
-- "Select All / Deselect All" toggle
-- Confirmation modal before bulk delete
-- Test: verify selected questions are removed, others remain
+Checkbox selection per question row + "Select All / Deselect All" toggle + confirmation modal on the teacher questions page. `deleteSelected()` filters by `exam_id` to prevent cross-exam deletions. 5 tests (bulk delete, ownership isolation, select all, deselect all, empty selection no-op).
 
 ### Exam Archive / Soft Filter
 **Effort:** ~15 min | **Priority:** Medium
