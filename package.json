@@ -21,7 +21,7 @@
         "lightningcss-linux-x64-gnu": "^1.29.1"
     },
     "devDependencies": {
-        "laravel-echo": "^2.3.1",
+        "laravel-echo": "^2.3.3",
         "pusher-js": "^8.4.3"
     }
 }
